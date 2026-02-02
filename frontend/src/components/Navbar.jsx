@@ -5,6 +5,7 @@ import {
   Clapperboard,
   Film,
   Home,
+  LogOut,
   Mail,
   Menu,
   Ticket,

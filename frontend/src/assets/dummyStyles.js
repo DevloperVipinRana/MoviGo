@@ -571,8 +571,6 @@ export const loginStyles = {
   
   // Custom CSS
   customCSS: `
-    @import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&display=swap');
-
     @keyframes borderAnimation {
       0% {
         box-shadow: 0 0 0 1px #dc2626, 0 0 20px 2px rgba(220, 38, 38, 0.3);
