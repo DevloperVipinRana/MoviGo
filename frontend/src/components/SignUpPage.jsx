@@ -1,7 +1,19 @@
 import React, { useState } from "react";
 import { signUpStyles, signUpCSS } from "../assets/dummyStyles";
-import { ToastContainer } from "react-toastify";
-import { ArrowLeft, Clapperboard, Mail, Phone, Ticket, User } from "lucide-react";
+import { toast, ToastContainer } from "react-toastify";
+import {
+  ArrowLeft,
+  Calendar,
+  Clapperboard,
+  Eye,
+  EyeOff,
+  Film,
+  Lock,
+  Mail,
+  Phone,
+  Ticket,
+  User,
+} from "lucide-react";
 
 const SignUpPage = () => {
   const [formData, setFormData] = useState({
@@ -176,7 +188,11 @@ const SignUpPage = () => {
                       required
                       value={formData.fullName}
                       onChange={handleChange}
-                      className={`${signUpStyles.input.base} ${errors.fullName ? signUpStyles.input.error : signUpStyles.input.normal} ${signUpStyles.inputWithIcon}`}
+                      className={`${signUpStyles.input.base} ${
+                        errors.fullName
+                          ? signUpStyles.input.error
+                          : signUpStyles.input.normal
+                      } ${signUpStyles.inputWithIcon}`}
                       placeholder="Enter your Full Name"
                     />
                     <div className={signUpStyles.inputIcon}>
@@ -200,7 +216,11 @@ const SignUpPage = () => {
                       required
                       value={formData.username}
                       onChange={handleChange}
-                      className={`${signUpStyles.input.base} ${errors.username ? signUpStyles.input.error : signUpStyles.input.normal} ${signUpStyles.inputWithIcon}`}
+                      className={`${signUpStyles.input.base} ${
+                        errors.username
+                          ? signUpStyles.input.error
+                          : signUpStyles.input.normal
+                      } ${signUpStyles.inputWithIcon}`}
                       placeholder="Choose a username"
                     />
                     <div className={signUpStyles.inputIcon}>
@@ -226,7 +246,11 @@ const SignUpPage = () => {
                       required
                       value={formData.email}
                       onChange={handleChange}
-                      className={`${signUpStyles.input.base} ${errors.email ? signUpStyles.input.error : signUpStyles.input.normal} ${signUpStyles.inputWithIcon}`}
+                      className={`${signUpStyles.input.base} ${
+                        errors.email
+                          ? signUpStyles.input.error
+                          : signUpStyles.input.normal
+                      } ${signUpStyles.inputWithIcon}`}
                       placeholder="your@example.com"
                     />
                     <div className={signUpStyles.inputIcon}>
@@ -250,7 +274,11 @@ const SignUpPage = () => {
                       required
                       value={formData.phone}
                       onChange={handleChange}
-                      className={`${signUpStyles.input.base} ${errors.phone ? signUpStyles.input.error : signUpStyles.input.normal} ${signUpStyles.inputWithIcon}`}
+                      className={`${signUpStyles.input.base} ${
+                        errors.phone
+                          ? signUpStyles.input.error
+                          : signUpStyles.input.normal
+                      } ${signUpStyles.inputWithIcon}`}
                       placeholder="+1 (555) 23-456789"
                     />
                     <div className={signUpStyles.inputIcon}>
@@ -261,10 +289,108 @@ const SignUpPage = () => {
                     <p className={signUpStyles.errorText}>{errors.phone}</p>
                   )}
                 </div>
-
               </div>
 
+              <div className={signUpStyles.formGrid}>
+                <div>
+                  <label htmlFor="birthDate" className={signUpStyles.field}>
+                    DATE OF BIRTH
+                  </label>
+                  <div className={signUpStyles.inputContainer}>
+                    <input
+                      type="date"
+                      id="birthDate"
+                      name="birthDate"
+                      required
+                      value={formData.birthDate}
+                      onChange={handleChange}
+                      className={`${signUpStyles.input.base} ${
+                        errors.birthDate
+                          ? signUpStyles.input.error
+                          : signUpStyles.input.normal
+                      } ${signUpStyles.inputWithIcon}`}
+                    />
+                    <div className={signUpStyles.inputIcon}>
+                      <Calendar size={18} />
+                    </div>
+                  </div>
+                  {errors.birthDate && (
+                    <p className={signUpStyles.errorText}>{errors.birthDate}</p>
+                  )}
+                </div>
+
+                <div>
+                  <label htmlFor="password" className={signUpStyles.field}>
+                    PASSWORD
+                  </label>
+                  <div className={signUpStyles.inputContainer}>
+                    <input
+                      type={showPassword ? "text" : "password"}
+                      id="password"
+                      name="password"
+                      required
+                      value={formData.password}
+                      onChange={handleChange}
+                      className={`${signUpStyles.input.base} ${
+                        errors.password
+                          ? signUpStyles.input.error
+                          : signUpStyles.input.normal
+                      } ${signUpStyles.inputWithToggle}`}
+                      placeholder="Create a strong password"
+                    />
+                    <div className={signUpStyles.inputIcon}>
+                      <Lock size={18} />
+                    </div>
+
+                    <button
+                      type="button"
+                      className={signUpStyles.passwordToggle}
+                      onClick={() => setShowPassword(!showPassword)}
+                    >
+                      {showPassword ? (
+                        <EyeOff size={18} className={signUpStyles.toggleIcon} />
+                      ) : (
+                        <Eye size={18} className={signUpStyles.toggleIcon} />
+                      )}
+                    </button>
+                  </div>
+                  {errors.password && (
+                    <p className={signUpStyles.errorText}>{errors.password}</p>
+                  )}
+                </div>
+              </div>
+
+              <div className={signUpStyles.submitContainer}>
+                <button
+                  type="submit"
+                  disabled={isLoading}
+                  className={`${signUpStyles.submitButton.base} ${
+                    isLoading ? signUpStyles.submitButton.loading : ""
+                  }`}
+                >
+                  {isLoading ? (
+                    <div className={signUpStyles.submitContent}>
+                      <div className={signUpStyles.loadingSpinner}></div>
+                      CREATING YOUR ACCOUNT...
+                    </div>
+                  ) : (
+                    <div className={signUpStyles.submitContent}>
+                      <Film className={signUpStyles.submitIcon} size={20} />
+                      <span className="font-cinema">CREATE CINEMA ACCOUNT</span>
+                    </div>
+                  )}
+                </button>
+              </div>
             </form>
+
+            <div className={signUpStyles.loginContainer}>
+              <p className={signUpStyles.loginText}>
+                Already have an account?{" "}
+                <a href="/login" className={signUpStyles.loginLink}>
+                  Sign in to your account
+                </a>
+              </p>
+            </div>
           </div>
         </div>
       </div>
