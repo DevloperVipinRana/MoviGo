@@ -1018,14 +1018,14 @@ export const signUpCSS = `
 export const trailersStyles = {
   // Main container
   container: "min-h-screen bg-gradient-to-b from-gray-100 to-gray-300 text-gray-900",
-  main: "relative z-10 pt-20 pb-12 container mx-auto px-4 sm:px-6 lg:px-8",
+  main: "relative z-10 pt-20 pb-12 container mx-auto px-4 sm:px-6 lg:px-0",
   
   // Layout
   layout: "flex flex-col lg:flex-row md:flex-row gap-8",
   
   // Left side - Trailers List
   leftSide: "w-full md:w-1/2 lg:w-2/5",
-  leftCard: "bg-white font-[pacifico] rounded-xl shadow-lg p-5 md:p-6",
+  leftCard: "bg-white font-[pacifico] rounded-xl shadow-lg p-5 md:p-4",
   leftTitle: "text-2xl font-semibold mb-4 flex items-center gap-2",
   titleIcon: "text-red-600",
   

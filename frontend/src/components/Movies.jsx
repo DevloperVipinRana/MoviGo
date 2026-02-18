@@ -34,22 +34,22 @@ const Movies = () => {
             </Link>
 
             <div className={moviesStyles.movieInfo}>
-                <div className={moviesStyles.titleContainer}>
-                    <Tickets size={20} className="text-red-600 mr-2" />
-                    <span id={`movie-title-${m.id}`} className={moviesStyles.movieTitle}
-                    style={{
-                        fontFamily: "'Pacifico', cursive"
-                    }}>
-                        {m.title}
-                    </span>
-                </div>
-                <div className={moviesStyles.categoryContainer}>
-                    <span className={moviesStyles.categoryText}>
-                        {m.category}
-                    </span>
-                </div>
+              <div className={moviesStyles.titleContainer}>
+                <Tickets size={20} className="text-red-600 mr-2" />
+                <span
+                  id={`movie-title-${m.id}`}
+                  className={moviesStyles.movieTitle}
+                  style={{
+                    fontFamily: "'Pacifico', cursive",
+                  }}
+                >
+                  {m.title}
+                </span>
+              </div>
+              <div className={moviesStyles.categoryContainer}>
+                <span className={moviesStyles.categoryText}>{m.category}</span>
+              </div>
             </div>
-
           </article>
         ))}
       </div>
