@@ -3,7 +3,7 @@ import { movieDetailStyles, movieDetailCSS } from "../assets/dummyStyles";
 import movies from "../assets/dummymdata";
 import { useNavigate, useParams, Link } from "react-router-dom";
 import { toast } from "react-toastify";
-import { ArrowLeft, Star, X } from "lucide-react";
+import { ArrowLeft, Calendar, Play, Star, User, X } from "lucide-react";
 
 const ROWS = [
   { id: "A", type: "standard", count: 8 },
@@ -345,6 +345,264 @@ const MovieDetailPage = () => {
             <span className={movieDetailStyles.genreTag}>{movie.genre}</span>
           </div>
         </div>
+
+        {/* MAIN LAYOUT */}
+        <div className={movieDetailStyles.mainLayout}>
+          <div className={movieDetailStyles.leftColumn}>
+            <div className={movieDetailStyles.posterCard}>
+              <div
+                className={movieDetailStyles.posterImage}
+                style={{ maxWidth: "320px" }}
+              >
+                <img
+                  src={movie.image}
+                  alt={movie.title}
+                  onError={(e) => {
+                    e.currentTarget.onerror = null;
+                    e.currentTarget.src =
+                      "https://via.placeholder.com/320x480?text=No+Image";
+                  }}
+                  className={movieDetailStyles.posterImg}
+                />
+              </div>
+
+              {/* WATCH TRAILER */}
+              <button
+                onClick={() => openTrailer(movie)}
+                className={movieDetailStyles.trailerButton}
+              >
+                <Play size={18} />
+                <span>Watch Trailer</span>
+              </button>
+            </div>
+          </div>
+
+          <div className={movieDetailStyles.rightColumns}>
+            <div className={movieDetailStyles.showtimesCard}>
+              <h3
+                className={movieDetailStyles.showtimesTitle}
+                style={{ fontFamily: "'Cinzel', serif" }}
+              >
+                <Calendar className={movieDetailStyles.showtimesIcon} />
+                <span>Showtimes</span>
+              </h3>
+
+              <div className={movieDetailStyles.daySelection}>
+                {showtimeDays.map((day, index) => (
+                  <button
+                    key={day.date}
+                    onClick={() => {
+                      setSelectedDay(index);
+                      setSelectedTime(null);
+                    }}
+                    className={`${movieDetailStyles.dayButton.base} ${
+                      selectedDay === index
+                        ? movieDetailStyles.dayButton.active
+                        : movieDetailStyles.dayButton.inactive
+                    }`}
+                  >
+                    <div className={movieDetailStyles.dayName}>
+                      {day.shortDay}
+                    </div>
+                    <div className={movieDetailStyles.dayDate}>
+                      {day.dateStr}
+                    </div>
+                  </button>
+                ))}
+              </div>
+              <div className={movieDetailStyles.showtimesGrid}>
+                {showtimeDays[selectedDay]?.showtimes.map((showtime, index) => {
+                  const bookedCount = getBookedCountFor(showtime.datetime);
+                  const isSoldOut = bookedCount >= TOTAL_SEATS;
+
+                  return (
+                    <button
+                      key={index}
+                      onClick={() => handleTimeSelect(showtime.datetime)}
+                      className={`${movieDetailStyles.timeButton.base} ${
+                        selectedTime === showtime.datetime
+                          ? movieDetailStyles.timeButton.active
+                          : movieDetailStyles.timeButton.inactive
+                      }`}
+                      title={
+                        isSoldOut
+                          ? "All seats booked for this showtime"
+                          : `Seats available: ${Math.max(0, TOTAL_SEATS - bookedCount)}`
+                      }
+                      aria-disabled={isSoldOut}
+                    >
+                      <span>{showtime.time}</span>
+                      {isSoldOut && (
+                        <span className={movieDetailStyles.soldOutBadge}>
+                          Sold Out
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+
+              {selectedTime && (
+                <div className={movieDetailStyles.proceedButton}>
+                  <button
+                    onClick={handleBookNow}
+                    className={movieDetailStyles.bookButton}
+                  >
+                    Proceed to Seat Selection
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {/* CAST SECTION */}
+            <div className={movieDetailStyles.castCard}>
+              <h3
+                className={movieDetailStyles.castTitle}
+                style={{ fontFamily: "'Cinzel', serif" }}
+              >
+                <User className={movieDetailStyles.castIcon} />
+                <span>Cast</span>
+              </h3>
+              <div className={movieDetailStyles.castGrid}>
+                {movie.cast && movie.cast.length ? (
+                  movie.cast.map((c, idx) => (
+                    <div key={idx} className={movieDetailStyles.castItem}>
+                      <div className={movieDetailStyles.castImageContainer}>
+                        {c.img ? (
+                          <img
+                            src={c.img}
+                            alt={c.name}
+                            className={movieDetailStyles.castImage}
+                            onError={(e) => {
+                              e.currentTarget.onerror = null;
+                              e.currentTarget.src =
+                                "https://via.placeholder.com/80?text=A";
+                            }}
+                          />
+                        ) : (
+                          <FallbackAvatar className="w-20 h-20 mx-auto" />
+                        )}
+                      </div>
+                      <div className={movieDetailStyles.castName}>{c.name}</div>
+                      <div className={movieDetailStyles.castRole}>{c.role}</div>
+                    </div>
+                  ))
+                ) : (
+                  <div className={movieDetailStyles.noCast}>
+                    No Cast data avalaible
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* STORY SECTION */}
+        <div className={movieDetailStyles.storyCard}>
+          <h2
+            className={movieDetailStyles.storyTitle}
+            style={{ fontFamily: "'Cinzel', serif" }}
+          >
+            Story
+          </h2>
+          <p className={movieDetailStyles.storyText}>{movie.synopsis}</p>
+        </div>
+
+        {/* Director & Producer Section */}
+        <div className={movieDetailStyles.crewGrid}>
+          {/* Director */}
+          <div className={movieDetailStyles.crewCard}>
+            <div className={movieDetailStyles.crewHeader}>
+              <User className={movieDetailStyles.crewIcon} />
+              <h3
+                className={movieDetailStyles.crewTitle}
+                style={{ fontFamily: "'Cinzel', serif" }}
+              >
+                Director
+              </h3>
+            </div>
+            <div className={movieDetailStyles.crewContent}>
+              {(() => {
+                const directors = Array.isArray(movie.director)
+                  ? movie.director
+                  : movie.director
+                    ? [movie.director]
+                    : [];
+
+                return (
+                  <div className={movieDetailStyles.crewImageGrid}>
+                    {directors.length ? (
+                      directors.slice(0, 2).map((d, i) => (
+                        <div key={i} className="flex flex-col items-center">
+                          {d?.img ? (
+                            <img
+                              src={d.img}
+                              alt={d.name || `Director ${i + 1}`}
+                              className={movieDetailStyles.crewImage}
+                              onError={(e) => {
+                                e.currentTarget.onerror = null;
+                                e.currentTarget.src =
+                                  "https://via.placeholder.com/96?text=D";
+                              }}
+                            />
+                          ) : (
+                            <div className={movieDetailStyles.fallbackAvatar}>
+                              ?
+                            </div>
+                          )}
+                          <div className={movieDetailStyles.crewName}>
+                            {d?.name ?? "N/A"}
+                          </div>
+                        </div>
+                      ))
+                    ) : (
+                      <div className="flex flex-col items-center">
+                        <div className={movieDetailStyles.fallbackAvatar}>
+                          ?
+                        </div>
+                        <div className={movieDetailStyles.crewName}>N/A</div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
+            </div>
+          </div>
+
+          {/* Producer */}
+          <div className={movieDetailStyles.crewCard}>
+            <div className={movieDetailStyles.crewHeader}>
+              <User className={movieDetailStyles.crewIcon} />
+              <h3
+                className={movieDetailStyles.crewTitle}
+                style={{ fontFamily: "'Cinzel', serif" }}
+              >
+                Producer
+              </h3>
+            </div>
+            <div className={movieDetailStyles.crewContent}>
+              {movie.producer?.img ? (
+                <img
+                  src={movie.producer.img}
+                  alt={movie.producer.name}
+                  className={movieDetailStyles.crewImage}
+                  onError={(e) => {
+                    e.currentTarget.onerror = null;
+                    e.currentTarget.src =
+                      "https://via.placeholder.com/96?text=P";
+                  }}
+                />
+              ) : (
+                <FallbackAvatar className="w-20 h-20 sm:w-24 sm:h-24 mb-3 sm:mb-4" />
+              )}
+              <div className={movieDetailStyles.crewName}>
+                {movie.producer?.name ?? "N/A"}
+              </div>
+            </div>
+          </div>
+        </div>
+        
+        <style jsx>{movieDetailCSS}</style>
       </div>
     </div>
   );
