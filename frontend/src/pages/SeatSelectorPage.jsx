@@ -42,7 +42,7 @@ const SeatSelectorPage = () => {
     }
   }, [slotKey, movie, navigate]);
 
-  const storageKey = `bookins_${movieId}_${slotKey}`;
+  const storageKey = `bookings_${movieId}_${slotKey}`;
 
   const [booked, setBooked] = useState(new Set());
   const [selected, setSelected] = useState(new Set());
@@ -68,7 +68,7 @@ const SeatSelectorPage = () => {
       setBooked(new Set());
     }
     setSelected(new Set());
-  }, [storageKey]); //gey storagekey from local storage
+  }, [storageKey]); //get storagekey from local storage
 
   const toggleSeat = (id) => {
     if (booked.has(id)) {
