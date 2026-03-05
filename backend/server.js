@@ -2,6 +2,9 @@ import express from 'express';
 import cors from 'cors';
 import 'dotenv/config';
 import { connectDB } from './config/db.js';
+import userRouter from './routes/userRouter.js';
+import movieRouter from './routes/movieRouter.js';
+import path from 'path';
 
 const app = express();
 const port = 5000;
@@ -16,7 +19,9 @@ connectDB();
 
 
 // ROUTES
-
+app.use('/uploads', express.static(path.join(process.cwd(), "uploads")));
+app.use('/api/auth', userRouter);
+app.use('/api/movies', movieRouter);
 
 
 app.get('/', (req, res) =>{
