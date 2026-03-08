@@ -279,7 +279,7 @@ export async function getMovies(req, res) {
       page = 1,
       limit = 12,
       search,
-      latestTrailer,
+      latestTrailers,
     } = req.query;
     let filter = {};
     if (typeof category === "string" && category.trim())
@@ -293,7 +293,7 @@ export async function getMovies(req, res) {
         { story: { $regex: q, $options: "i" } },
       ];
     }
-    if (latestTrailer && String(latestTrailer).toLowerCase() !== "false") {
+    if (latestTrailers && String(latestTrailers).toLowerCase() !== "false") {
       filter =
         Object.keys(filter).length === 0
           ? {
