@@ -14,6 +14,7 @@ import {
   Ticket,
   User,
 } from "lucide-react";
+import axios from 'axios'
 
 const SignUpPage = () => {
   const [formData, setFormData] = useState({
@@ -109,14 +110,18 @@ const SignUpPage = () => {
     });
     setIsLoading(true);
 
-    setTimeout(() => {
-      setIsLoading(false);
-      toast.success("Account created successfully!Redirecting to Login...");
-
-      setTimeout(() => {
-        window.location.href = "/login";
-      }, 2000);
-    }, 1500);
+    try {
+      const payload = {
+        fullName: formData.fullName.trim(),
+        username: formData.username.trim(),
+        email: formData.email.trim(),
+        phone: formData.phone.trim(),
+        birthDate: formData.birthDate,
+        password: formData.password,
+      }
+    } catch (error) {
+      
+    }
   };
 
   return (
