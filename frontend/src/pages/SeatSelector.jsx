@@ -1,5 +1,5 @@
 import React from 'react'
-import SeatSelectorPage from './SeatSelectorPage'
+import SeatSelectorPage from '../components/SeatSelectorPage'
 
 const SeatSelector = () => {
   return (

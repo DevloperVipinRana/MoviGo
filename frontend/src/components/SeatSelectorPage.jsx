@@ -1,5 +1,4 @@
-
-import React, { useEffect, useState, useMemo } from "react";
+import React, { useEffect, useState, useMemo, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import axios from "axios";
 import {
@@ -53,11 +52,10 @@ const slotToISO = (slot) => {
   return null;
 };
 
-const getAuthToken = () =>
+const getStoredToken = () =>
   localStorage.getItem("token") ||
   localStorage.getItem("authToken") ||
   localStorage.getItem("accessToken") ||
-  localStorage.getItem("jwt") ||
   null;
 
 const normalizeSeatId = (s) => (s ? String(s).trim().toUpperCase() : "");
@@ -65,12 +63,13 @@ const sameMinute = (a, b) => {
   if (!a || !b) return false;
   const da = new Date(a),
     db = new Date(b);
-  if (isNaN(da.getTime()) || isNaN(db.getTime())) return false;
+  if (isNaN(da) || isNaN(db)) return false;
   da.setSeconds(0, 0);
   db.setSeconds(0, 0);
   return da.getTime() === db.getTime();
 };
 
+/* component */
 export default function SeatSelectorPage() {
   const { id, slot } = useParams();
   const movieIdParam = id;
@@ -81,28 +80,16 @@ export default function SeatSelectorPage() {
   const [loading, setLoading] = useState(true);
   const [booked, setBooked] = useState(new Set());
   const [selected, setSelected] = useState(new Set());
-  const [isAuthenticated, setIsAuthenticated] = useState(
-    Boolean(getAuthToken())
-  );
   const [bookingLoading, setBookingLoading] = useState(false);
+  const [isLoggedIn, setIsLoggedIn] = useState(Boolean(getStoredToken()));
 
   useEffect(() => {
-    setIsAuthenticated(Boolean(getAuthToken()));
-  }, []);
-  useEffect(() => {
-    const onStorage = (e) => {
-      if (
-        ["token", "authToken", "accessToken", "jwt"].includes(e.key) ||
-        e.key === null
-      ) {
-        setIsAuthenticated(Boolean(getAuthToken()));
-      }
-    };
+    const onStorage = () => setIsLoggedIn(Boolean(getStoredToken()));
     window.addEventListener("storage", onStorage);
     return () => window.removeEventListener("storage", onStorage);
   }, []);
 
-  // fetch movie
+  /* fetch movie */
   useEffect(() => {
     let mounted = true;
     const fetchMovie = async () => {
@@ -117,11 +104,7 @@ export default function SeatSelectorPage() {
           toast.error((data && data.message) || "Failed to load movie");
           setMovie(null);
         } else {
-          const item =
-            data.item ||
-            data.data ||
-            (data.success && data.movie) ||
-            (data.success ? data : null);
+          const item = data.item || data.data || (data.success ? data : null);
           setMovie(item || null);
         }
       } catch (err) {
@@ -142,24 +125,24 @@ export default function SeatSelectorPage() {
     };
   }, [movieIdParam]);
 
-  // resolve slot object
-  const slotObj = useMemo(() => {
-    if (!movie || !slotKey) return null;
-    const slots = Array.isArray(movie.slots)
-      ? movie.slots
-      : Array.isArray(movie.showtimes)
-      ? movie.showtimes
-      : [];
-    if (!slots.length) return null;
+  /* slots resolution */
+  const slotsSource = useMemo(() => {
+    if (!movie) return [];
+    if (Array.isArray(movie.slots) && movie.slots.length) return movie.slots;
+    if (Array.isArray(movie.showtimes) && movie.showtimes.length)
+      return movie.showtimes;
+    return [];
+  }, [movie]);
 
-    const sString = slots.find(
+  const slotObj = useMemo(() => {
+    if (!slotsSource.length || !slotKey) return null;
+    const sString = slotsSource.find(
       (s) =>
         typeof s === "string" &&
         (s === slotKey || s === decodeURIComponent(slotKey))
     );
     if (sString) return { time: sString, audi: "Audi 1", _iso: sString };
-
-    for (const s of slots) {
+    for (const s of slotsSource) {
       if (!s) continue;
       if (typeof s === "object") {
         const iso = slotToISO(s);
@@ -171,7 +154,7 @@ export default function SeatSelectorPage() {
     try {
       const providedTs = new Date(slotKey).getTime();
       if (!isNaN(providedTs)) {
-        for (const s of slots) {
+        for (const s of slotsSource) {
           const iso = slotToISO(s);
           if (!iso) continue;
           const ts = new Date(iso).getTime();
@@ -180,200 +163,212 @@ export default function SeatSelectorPage() {
       }
     } catch (e) {}
     return null;
-  }, [movie, slotKey]);
+  }, [slotsSource, slotKey]);
 
-  // Resolve auditorium name: slot-level (auditorium / audi) -> movie-level (auditorium / audi / hall) -> fallback
+  // Resolve auditorium name from slot (slot-level), then movie (backend), then legacy fields, then fallback
   const audiName = useMemo(() => {
+    // slot-level auditorium (preferred)
     if (slotObj && slotObj.auditorium && String(slotObj.auditorium).trim())
       return String(slotObj.auditorium).trim();
+    // older alias 'audi' on slotObj
     if (slotObj && slotObj.audi && String(slotObj.audi).trim())
       return String(slotObj.audi).trim();
+    // movie-level auditorium from backend
     if (movie && movie.auditorium && String(movie.auditorium).trim())
       return String(movie.auditorium).trim();
+    // fallback to movie.audi or movie.hall etc (legacy)
     if (movie && movie.audi && String(movie.audi).trim())
       return String(movie.audi).trim();
     if (movie && movie.hall && String(movie.hall).trim())
       return String(movie.hall).trim();
+    // default fallback
     return "Audi 1";
   }, [slotObj, movie]);
 
-  // validate showtime
+  /* validate showtime */
   useEffect(() => {
     if (!slotKey) {
       toast.error("Missing showtime. Select a time from the movie page.");
-      navigate(
-        movie ? `/movies/${movie._id || movie.id || movieIdParam}` : "/movies"
-      );
+      if (movie) navigate(`/movies/${movie._id || movie.id || movieIdParam}`);
+      else navigate("/movies");
       return;
     }
-    const isValidDate = !!slotKey && !isNaN(new Date(slotKey).getTime());
-    if (!isValidDate && !slotObj) {
-      toast.error(
-        "Invalid or missing showtime. Please select a time from the movie page."
-      );
-      navigate(
-        movie ? `/movies/${movie._id || movie.id || movieIdParam}` : "/movies"
-      );
+    const parsed = new Date(slotKey).getTime();
+    if (isNaN(parsed) && !slotObj) {
+      toast.error("Invalid showtime. Please select from the movie page.");
+      if (movie) navigate(`/movies/${movie._id || movie.id || movieIdParam}`);
+      else navigate("/movies");
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [slotKey, movie, slotObj]);
+  }, [slotKey, slotObj, movie]);
 
   const mid = movie ? movie._id || movie.id || movieIdParam : movieIdParam;
   const storageKey = `bookings_${mid}_${slotKey}_${audiName}`;
   const legacyKey = `bookings_${mid}_${slotKey}`;
 
-  // fetch booked seats (paid only) with fallback to occupied endpoint and localStorage
+  /* occupancy polling & fetch */
+  const pollRef = useRef(null);
+  const mountedRef = useRef(true);
   useEffect(() => {
-    let cancelled = false;
-
-    const setBookedAndPrune = (arr) => {
-      const set = new Set(arr);
-      if (cancelled) return;
-      setBooked((prev) => {
-        const same =
-          prev.size === set.size && [...prev].every((v) => set.has(v));
-        if (same) return prev;
-        setSelected((selPrev) => {
-          const nextSel = new Set(selPrev);
-          for (const s of set) nextSel.delete(s);
-          return nextSel;
-        });
-        return set;
-      });
-      try {
-        localStorage.setItem(storageKey, JSON.stringify([...set]));
-      } catch (e) {}
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
     };
+  }, []);
 
-    // fetch the booked seats
-    const fetchBooked = async () => {
-      if (!movieIdParam || !slotKey) return;
-      const showtimeQuery = slotObj && slotObj._iso ? slotObj._iso : slotKey;
+  const setBookedAndPruneSelection = (setArr = []) => {
+    const set = new Set(setArr);
+    if (!mountedRef.current) return;
+    setBooked((prev) => {
+      const same = prev.size === set.size && [...prev].every((v) => set.has(v));
+      if (same) return prev;
+      setSelected((selPrev) => {
+        const nextSel = new Set(selPrev);
+        for (const s of set) nextSel.delete(s);
+        return nextSel;
+      });
+      return set;
+    });
+    try {
+      localStorage.setItem(storageKey, JSON.stringify([...set]));
+    } catch (e) {}
+  };
 
-      // primary: /api/bookings -> filter paid bookings this is for the seat already booked
-      // using token it will set the booked seats as unavailable to book again
-      try {
-        const token = getAuthToken();
-        const headers = token ? { Authorization: `Bearer ${token}` } : {};
-        const res = await axios.get(`${API_BASE}/api/bookings`, {
-          params: { movieId: movieIdParam, limit: 1000 },
-          headers,
-          timeout: 8000,
-        });
-        const data = res?.data;
-        let items = [];
-        if (!data) items = [];
-        else if (Array.isArray(data)) items = data;
-        else if (Array.isArray(data.items)) items = data.items;
-        else if (Array.isArray(data.bookings)) items = data.bookings;
-        else items = [];
+  const fetchOccupied = async (opts = { fallbackToLocal: true }) => {
+    if (!mid || !slotKey) return;
+    const showtimeQuery = slotObj && slotObj._iso ? slotObj._iso : slotKey;
 
-        const paidSeats = [];
-        for (const b of items) {
-          const bShowRaw =
-            b.showtime || b.slot || b.time || b.showtimeIso || b._iso || null;
-          if (!bShowRaw) continue;
-          if (!sameMinute(bShowRaw, showtimeQuery)) continue;
-          const bAudi = (b.auditorium || b.audi || b.audiName || "").toString();
-          if (
-            bAudi &&
-            audiName &&
-            bAudi.toLowerCase() !== audiName.toLowerCase()
-          )
-            continue;
-          const ps = (b.paymentStatus || b.payment_status || "")
-            .toString()
-            .toLowerCase();
-          if (ps !== "paid") continue;
-          const sarr = Array.isArray(b.seats)
-            ? b.seats
-                .map((s) =>
-                  typeof s === "string" ? s : (s && (s.seatId || s.id)) || ""
-                )
-                .filter(Boolean)
-            : Array.isArray(b.seatIds)
-            ? b.seatIds.map(String).filter(Boolean)
-            : [];
-          for (const s of sarr) paidSeats.push(normalizeSeatId(s));
+    // primary: fetch bookings and filter PAID
+    try {
+      const res = await axios.get(`${API_BASE}/api/bookings`, {
+        params: { movieId: mid },
+        timeout: 8000,
+      });
+      const data = res?.data;
+      let items = [];
+      if (!data) items = [];
+      else if (Array.isArray(data)) items = data;
+      else if (Array.isArray(data.items)) items = data.items;
+      else if (Array.isArray(data.bookings)) items = data.bookings;
+      // collect paid seats for same-minute & same-audi
+      const paidSeats = [];
+      for (const b of items) {
+        const bShow = b.showtime || b.slot || b.time || b.datetime || b.date;
+        const bAudi =
+          (b.audi || b.auditorium || b.audio || b.hall || "").toString() || "";
+        if (!bShow) continue;
+        if (!sameMinute(bShow, showtimeQuery)) continue;
+        if (
+          bAudi &&
+          audiName &&
+          bAudi.toString().toLowerCase() !== audiName.toString().toLowerCase()
+        )
+          continue;
+        const ps = (b.paymentStatus || b.payment_status || "")
+          .toString()
+          .toLowerCase();
+        if (ps !== "paid") continue;
+        const sarr = Array.isArray(b.seats)
+          ? b.seats.map((s) =>
+              typeof s === "string" ? s : (s && (s.seatId || s.id)) || ""
+            )
+          : Array.isArray(b.seatIds)
+          ? b.seatIds.map(String)
+          : [];
+        for (const s of sarr) {
+          const n = normalizeSeatId(s);
+          if (n) paidSeats.push(n);
         }
-
-        if (!cancelled) {
-          if (paidSeats.length > 0) {
-            setBookedAndPrune(paidSeats);
-          } else {
-            setBooked(new Set());
-            try {
-              localStorage.setItem(storageKey, JSON.stringify([]));
-            } catch (e) {}
-          }
-        }
-        return;
-      } catch (err) {
-        console.warn(
-          "Primary paid-bookings fetch failed, falling back:",
-          err?.message || err
-        );
       }
-
-      // fallback: /api/bookings/occupied (this function will show you occupied seats)
+      if (paidSeats.length > 0) {
+        setBookedAndPruneSelection(paidSeats);
+        return;
+      }
+      if (mountedRef.current) setBooked(new Set());
       try {
-        const token = getAuthToken();
-        const headers = token ? { Authorization: `Bearer ${token}` } : {};
-        const res2 = await axios.get(`${API_BASE}/api/bookings/occupied`, {
-          params: { movieId: mid, showtime: showtimeQuery, audi: audiName },
-          headers,
-          timeout: 8000,
-        });
-        const data2 = res2?.data;
-        if (data2 && Array.isArray(data2.occupied)) {
-          const normalized = data2.occupied
-            .map((s) => normalizeSeatId(s))
-            .filter(Boolean);
-          if (!cancelled) setBookedAndPrune(normalized);
+        localStorage.setItem(storageKey, JSON.stringify([]));
+      } catch (e) {}
+      return;
+    } catch (err) {
+      console.warn(
+        "Primary paid-bookings fetch failed, falling back:",
+        err?.message || err
+      );
+    }
+
+    // fallback: occupied endpoint
+    try {
+      const token = getStoredToken();
+      const headers = token ? { Authorization: `Bearer ${token}` } : {};
+      const res2 = await axios.get(`${API_BASE}/api/bookings/occupied`, {
+        params: { movieId: mid, showtime: showtimeQuery, audi: audiName },
+        headers,
+        timeout: 8000,
+      });
+      const data2 = res2?.data;
+      if (data2 && Array.isArray(data2.occupied)) {
+        const normalized = data2.occupied
+          .map((s) => normalizeSeatId(s))
+          .filter(Boolean);
+        setBookedAndPruneSelection(normalized);
+        return;
+      }
+      throw new Error("Invalid occupied response");
+    } catch (err) {
+      console.warn(
+        "fetchOccupied fallback failed, using local storage:",
+        err?.message || err
+      );
+      if (!opts.fallbackToLocal) return;
+      try {
+        const raw = localStorage.getItem(storageKey);
+        if (raw) {
+          const arr = JSON.parse(raw);
+          const normalized = Array.isArray(arr)
+            ? arr.map((s) => normalizeSeatId(s)).filter(Boolean)
+            : [];
+          setBookedAndPruneSelection(normalized);
           return;
         }
-        throw new Error("Invalid occupied response");
-      } catch (err) {
-        console.warn(
-          "fetchBooked fallback failed, using local storage:",
-          err?.message || err
-        );
-        if (cancelled) return;
-        try {
-          const raw = localStorage.getItem(storageKey);
-          if (raw) {
-            const arr = JSON.parse(raw);
-            const normalized = Array.isArray(arr)
-              ? arr.map(normalizeSeatId).filter(Boolean)
-              : [];
-            setBooked(new Set(normalized));
-            return;
-          }
-          const legacyRaw = localStorage.getItem(legacyKey);
-          if (legacyRaw) {
-            const arrLegacy = JSON.parse(legacyRaw);
-            const s = new Set(
-              Array.isArray(arrLegacy) ? arrLegacy.map(normalizeSeatId) : []
-            );
-            setBooked(s);
-            try {
-              localStorage.setItem(storageKey, JSON.stringify([...s]));
-            } catch (e) {}
-            return;
-          }
-        } catch (e) {
-          console.error("Fallback read failed:", e);
+        const legacyRaw = localStorage.getItem(legacyKey);
+        if (legacyRaw) {
+          const arrLegacy = JSON.parse(legacyRaw);
+          const normalized = Array.isArray(arrLegacy)
+            ? arrLegacy.map((s) => normalizeSeatId(s)).filter(Boolean)
+            : [];
+          setBookedAndPruneSelection(normalized);
+          try {
+            localStorage.setItem(storageKey, JSON.stringify([...normalized]));
+          } catch (e) {}
+          return;
         }
-        setBooked(new Set());
+      } catch (e) {
+        console.error("Fallback read failed:", e);
+      }
+      if (mountedRef.current) setBooked(new Set());
+    }
+  };
+
+  useEffect(() => {
+    if (!mid || !slotKey) return;
+    fetchOccupied();
+    if (pollRef.current) {
+      clearInterval(pollRef.current);
+      pollRef.current = null;
+    }
+    // Recreate poll whenever mid/slotKey/audiName/slotObj changes
+    pollRef.current = setInterval(
+      () => fetchOccupied({ fallbackToLocal: false }),
+      8000
+    );
+    return () => {
+      if (pollRef.current) {
+        clearInterval(pollRef.current);
+        pollRef.current = null;
       }
     };
-
-    fetchBooked();
-    return () => {
-      cancelled = true;
-    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [movieIdParam, slotKey, audiName, slotObj]);
+  }, [mid, slotKey, audiName, slotObj]);
 
   useEffect(() => {
     if (!loading && !movie) {
@@ -382,59 +377,56 @@ export default function SeatSelectorPage() {
     }
   }, [loading, movie, navigate]);
 
-  const toggleSeat = (id) => {
-    const nid = normalizeSeatId(id);
-    if (booked.has(nid)) {
-      toast.error(`Seat ${nid} already booked`);
+  const toggleSeat = (idRaw) => {
+    const id = normalizeSeatId(idRaw);
+    if (!id) return;
+    if (booked.has(id)) {
+      toast.error(`Seat ${id} already booked`);
       return;
     }
     setSelected((prev) => {
       const next = new Set(prev);
-      next.has(nid) ? next.delete(nid) : next.add(nid);
+      next.has(id) ? next.delete(id) : next.add(id);
       return next;
     });
   };
   const clearSelection = () => setSelected(new Set());
+  const basePrice = movie?.seatPrices?.standard ?? movie?.price ?? 0;
 
-  // pricing - use paise to avoid floating rounding issues
-  const basePriceRupee =
-    Number(movie?.seatPrices?.standard ?? movie?.price ?? 0) || 0;
-  const standardPaise = Math.round(basePriceRupee * 100);
-  const reclinerRupee =
-    typeof movie?.seatPrices?.recliner !== "undefined" &&
-    movie?.seatPrices?.recliner !== null
-      ? Number(movie.seatPrices.recliner)
-      : null;
-  const reclinerPaise =
-    reclinerRupee !== null
-      ? Math.round(reclinerRupee * 100)
-      : Math.round(standardPaise * 1.5);
-
-      // create a booking to server and opens the stripe payment gateway
   const confirmBooking = async () => {
     if (selected.size === 0) {
       toast.error("Select at least one seat.");
       return;
     }
-    const token = getAuthToken();
+    const token = getStoredToken();
     if (!token) {
-      toast.error("You must be logged in to book seats.");
+      toast.error(
+        "You must be logged in to book seats. Redirecting to login..."
+      );
       const returnUrl = encodeURIComponent(
         window.location.pathname + window.location.search
       );
-      setTimeout(() => navigate(`/login?redirect=${returnUrl}`), 400);
+      setTimeout(() => navigate(`/login?next=${returnUrl}`), 700);
       return;
     }
 
     const seatsArr = [...selected].sort();
+    const seatsPayload = seatsArr.map((sid) => {
+      const row = String(sid).charAt(0).toUpperCase();
+      const type = ["D", "E"].includes(row) ? "recliner" : "standard";
+      const price =
+        type === "recliner" ? Math.round(basePrice * 1.5) : basePrice;
+      return { seatId: sid, type, price };
+    });
+
     setBookingLoading(true);
     try {
       const payload = {
         movieId: movie?._id || movie?.id || movieIdParam,
         movieName: movie?.title || movie?.movieName || movie?.name || "",
-        showtime: slotKey,
-        auditorium: audiName,
-        seats: seatsArr,
+        showtime: slotObj && slotObj._iso ? slotObj._iso : slotKey,
+        audi: audiName,
+        seats: seatsPayload,
         paymentMethod: "card",
         currency: "INR",
         email: "",
@@ -443,71 +435,53 @@ export default function SeatSelectorPage() {
       const res = await axios.post(`${API_BASE}/api/bookings`, payload, {
         headers: { Authorization: `Bearer ${token}` },
       });
-      const data = res?.data;
-      if (data && data.success) {
-        // redirect to checkout if provided
-        if (data.checkout?.url) {
-          const newBooked = new Set([
-            ...booked,
-            ...seatsArr.map(normalizeSeatId),
-          ]);
-          try {
-            localStorage.setItem(storageKey, JSON.stringify([...newBooked]));
-          } catch (e) {}
-          window.location.href = data.checkout.url;
-          return;
-        }
-        // otherwise mark as booked locally and clear selection
-        const newBooked = new Set([
-          ...booked,
-          ...seatsArr.map(normalizeSeatId),
-        ]);
-        setBooked(newBooked);
-        setSelected(new Set());
+
+      if (res?.data?.success && res?.data?.checkout?.url) {
         try {
-          localStorage.setItem(storageKey, JSON.stringify([...newBooked]));
+          await fetchOccupied({ fallbackToLocal: false });
         } catch (e) {}
-        toast.success(
-          `${seatsArr.length} seat(s) reserved — proceed to payment`
-        );
+        window.location.href = res.data.checkout.url;
         return;
       }
-      toast.error(
-        (data && data.message) || "Failed to create booking on server"
-      );
+
+      if (res?.data?.success) {
+        await fetchOccupied({ fallbackToLocal: false });
+        setSelected(new Set());
+        toast.success("Booking created successfully.");
+        return;
+      }
+      throw new Error(res?.data?.message || "Failed to create booking");
     } catch (err) {
-      console.error(
-        "confirmBooking error:",
-        err?.response?.data || err.message || err
-      );
       if (err?.response?.status === 401) {
-        toast.error("Session expired — please log in again.");
-        ["token", "authToken", "accessToken", "jwt"].forEach((k) =>
-          localStorage.removeItem(k)
-        );
-        setIsAuthenticated(false);
+        toast.error("Session expired. Please login again.");
         const returnUrl = encodeURIComponent(
           window.location.pathname + window.location.search
         );
-        setTimeout(() => navigate(`/login?redirect=${returnUrl}`), 400);
+        setTimeout(() => navigate(`/login?next=${returnUrl}`), 700);
         return;
       }
       if (err?.response?.status === 409) {
-        const occupied = err.response.data?.occupied || [];
-        if (occupied.length > 0) {
+        const occupied = (err.response.data?.occupied || []).map(
+          normalizeSeatId
+        );
+        if (occupied.length) {
           setBooked((prev) => {
             const next = new Set(prev);
-            occupied.forEach((s) => next.add(normalizeSeatId(s)));
-            try {
-              localStorage.setItem(storageKey, JSON.stringify([...next]));
-            } catch (e) {}
+            occupied.forEach((s) => next.add(s));
             return next;
           });
           setSelected((prev) => {
             const next = new Set(prev);
-            occupied.forEach((s) => next.delete(normalizeSeatId(s)));
+            occupied.forEach((s) => next.delete(s));
             return next;
           });
+          try {
+            const arr = Array.from(booked);
+            localStorage.setItem(
+              storageKey,
+              JSON.stringify([...arr, ...occupied])
+            );
+          } catch (e) {}
           toast.error(
             `Some seats were just booked by others: ${occupied.join(", ")}`
           );
@@ -516,21 +490,25 @@ export default function SeatSelectorPage() {
             err.response.data?.message || "Some seats are already booked"
           );
         }
-        return;
+      } else {
+        console.error("createBooking error:", err);
+        toast.error(
+          err?.response?.data?.message ||
+            err.message ||
+            "Failed to create booking"
+        );
       }
-      toast.error(err?.response?.data?.message || "Failed to create booking");
     } finally {
       setBookingLoading(false);
     }
   };
 
-  const totalPaise = [...selected].reduce((sum, s) => {
+  const total = [...selected].reduce((sum, s) => {
     const rowLetter = s[0];
     const def = ROWS.find((r) => r.id === rowLetter);
-    const seatPaise = def?.type === "recliner" ? reclinerPaise : standardPaise;
-    return sum + (seatPaise || 0);
+    const multiplier = def?.type === "recliner" ? 1.5 : 1;
+    return sum + basePrice * multiplier;
   }, 0);
-  const total = (totalPaise / 100).toFixed(2);
   const selectedCount = selected.size;
 
   return (
@@ -555,7 +533,6 @@ export default function SeatSelectorPage() {
               <ArrowLeft size={18} /> Back
             </button>
           </div>
-
           <div style={{ flex: 1, textAlign: "center" }}>
             <h1
               className={seatSelectorHStyles.movieTitle}
@@ -573,7 +550,9 @@ export default function SeatSelectorPage() {
               style={{ marginTop: 6 }}
             >
               {slotKey
-                ? new Date(slotKey).toLocaleString("en-IN", {
+                ? new Date(
+                    slotObj && slotObj._iso ? slotObj._iso : slotKey
+                  ).toLocaleString("en-IN", {
                     weekday: "short",
                     year: "numeric",
                     month: "short",
@@ -584,7 +563,6 @@ export default function SeatSelectorPage() {
                 : "Showtime unavailable"}
             </div>
           </div>
-
           <div
             style={{
               display: "flex",
@@ -620,7 +598,6 @@ export default function SeatSelectorPage() {
             style={{
               transform: "perspective(120px) rotateX(6deg)",
               maxWidth: 900,
-              boxShadow: "0 0 40px rgba(220, 38, 38, 0.18)",
             }}
           >
             <div className={seatSelectorHStyles.screenText}>CURVED SCREEN</div>
@@ -630,7 +607,7 @@ export default function SeatSelectorPage() {
           </div>
         </div>
 
-        {/* Main Content */}
+        {/* Main */}
         <div className={seatSelectorHStyles.mainContent}>
           <div className={seatSelectorHStyles.sectionHeader}>
             <div className={seatSelectorHStyles.sectionTitleContainer}>
@@ -648,7 +625,6 @@ export default function SeatSelectorPage() {
             </div>
           </div>
 
-          {/* Seat grid */}
           <div className={seatSelectorHStyles.seatGridContainer}>
             {ROWS.map((row) => (
               <div key={row.id} className={seatSelectorHStyles.rowContainer}>
@@ -680,14 +656,11 @@ export default function SeatSelectorPage() {
                               ? ` ${seatSelectorHStyles.seatButtonAvailableRecliner}`
                               : ` ${seatSelectorHStyles.seatButtonAvailableStandard}`;
 
-                        const perSeatPaise =
+                        const priceTitle = `₹${
                           row.type === "recliner"
-                            ? reclinerPaise
-                            : standardPaise;
-                        const perSeatRupeeDisplay = (
-                          (perSeatPaise || 0) / 100
-                        ).toFixed(2);
-
+                            ? Math.round(basePrice * 1.5)
+                            : basePrice
+                        }`;
                         return (
                           <button
                             key={id}
@@ -697,7 +670,7 @@ export default function SeatSelectorPage() {
                             title={
                               isBooked
                                 ? `Seat ${id} - Already Booked (paid)`
-                                : `Seat ${id} (${row.type}) - ₹${perSeatRupeeDisplay}`
+                                : `Seat ${id} (${row.type}) - ${priceTitle}`
                             }
                             aria-pressed={isSelected}
                           >
@@ -728,13 +701,12 @@ export default function SeatSelectorPage() {
             ))}
           </div>
 
-          {/* Booking Summary & Actions */}
+          {/* Summary & Actions */}
           <div className={seatSelectorHStyles.summaryGrid}>
             <div className={seatSelectorHStyles.summaryContainer}>
               <h3 className={seatSelectorHStyles.summaryTitle}>
                 <Ticket size={18} /> Booking Summary
               </h3>
-
               <div className="space-y-4">
                 <div className={seatSelectorHStyles.summaryItem}>
                   <span className={seatSelectorHStyles.summaryLabel}>
@@ -745,7 +717,7 @@ export default function SeatSelectorPage() {
                   </span>
                 </div>
 
-                {selectedCount > 0 && (
+                {selectedCount > 0 ? (
                   <>
                     <div className={seatSelectorHStyles.selectedSeatsContainer}>
                       <div className={seatSelectorHStyles.selectedSeatsLabel}>
@@ -769,14 +741,12 @@ export default function SeatSelectorPage() {
                           Total Amount:
                         </span>
                         <span className={seatSelectorHStyles.totalValue}>
-                          ₹{total}
+                          ₹{Math.round(total)}
                         </span>
                       </div>
                     </div>
                   </>
-                )}
-
-                {selectedCount === 0 && (
+                ) : (
                   <div className={seatSelectorHStyles.emptyState}>
                     <div className={seatSelectorHStyles.emptyStateTitle}>
                       No seats selected
@@ -797,16 +767,31 @@ export default function SeatSelectorPage() {
                   </button>
                   <button
                     onClick={confirmBooking}
-                    disabled={selectedCount === 0 || bookingLoading}
+                    disabled={bookingLoading || selectedCount === 0}
                     className={seatSelectorHStyles.confirmButton}
                   >
-                    {bookingLoading
-                      ? "Booking..."
-                      : isAuthenticated
-                      ? "Confirm Booking"
-                      : "Log in to Book"}
+                    {bookingLoading ? "Booking..." : "Confirm Booking"}
                   </button>
                 </div>
+
+                {!isLoggedIn && (
+                  <div className="text-xs text-yellow-300 mt-2">
+                    You must be logged in to complete booking.{" "}
+                    <button
+                      onClick={() =>
+                        navigate(
+                          `/login?next=${encodeURIComponent(
+                            window.location.pathname + window.location.search
+                          )}`
+                        )
+                      }
+                      className="underline"
+                    >
+                      Login
+                    </button>
+                    .
+                  </div>
+                )}
               </div>
             </div>
 
@@ -821,7 +806,7 @@ export default function SeatSelectorPage() {
                       Standard
                     </div>
                     <div className={seatSelectorHStyles.pricingValueStandard}>
-                      ₹{(standardPaise / 100).toFixed(2)}
+                      ₹{basePrice}
                     </div>
                   </div>
                 </div>
@@ -831,7 +816,7 @@ export default function SeatSelectorPage() {
                       Recliner
                     </div>
                     <div className={seatSelectorHStyles.pricingValueRecliner}>
-                      ₹{(reclinerPaise / 100).toFixed(2)}
+                      ₹{Math.round(basePrice * 1.5)}
                     </div>
                   </div>
                 </div>
