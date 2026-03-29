@@ -26,7 +26,7 @@ const Movies = () => {
 
     async function loadFeaturedMovies() {
       try {
-        const url = `${API_BASE}/api/movies?featured=true&limit=6`;
+        const url = `${API_BASE}/api/movies?featured=true&limit=100`;
         const res = await fetch(url, { signal: ac.signal });
 
         if (!res.ok) throw new Error(`fetch error: ${res.status}`);

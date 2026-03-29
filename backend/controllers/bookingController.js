@@ -446,8 +446,8 @@ export async function getBooking(req, res) {
       // default: show only paid bookings for users
       q.paymentStatus = "paid";
     }
-    const items = (await Booking.find(q))
-      .toSorted({ createdAt: -1 })
+    const items = await Booking.find(q)
+      .sort({ createdAt: -1 })
       .lean()
       .exec();
     return res.json({ success: true, items });
@@ -461,23 +461,34 @@ export async function getBooking(req, res) {
 }
 
 // list of bookings
+
 export async function listBookings(req, res) {
   try {
-    const { movieId, page = 1, limit = 10, paymentStatus, status } = req.query;
+    const { movieId, page = 1, limit = 100, paymentStatus, status } = req.query;
     const q = {};
 
+    // FIX: query both root movieId AND movie.id (subdoc) to cover both save paths
     if (movieId) {
-      if (mongoose.Types.ObjectId.isValid(String(movieId)))
-        q.movieId = new mongoose.Types.ObjectId(String(movieId));
-      else q.movieId = String(movieId);
+      const mid = String(movieId).trim();
+      if (mongoose.Types.ObjectId.isValid(mid)) {
+        const oid = new mongoose.Types.ObjectId(mid);
+        q.$or = [
+          { movieId: oid },
+          { "movie.id": oid },
+          { movieId: mid },
+          { "movie.id": mid },
+        ];
+      } else {
+        q.$or = [{ movieId: mid }, { "movie.id": mid }];
+      }
     }
-    // if the caller explicitly requests "all" skip default filter
+
+    // paymentStatus filter (unchanged)
     if (paymentStatus && String(paymentStatus).toLowerCase() !== "all") {
       q.paymentStatus = String(paymentStatus).toLowerCase();
     } else if (status && String(status).toLowerCase() !== "all") {
       q.status = String(status).toLowerCase();
     } else {
-      // default: show only paid bookings for users
       q.paymentStatus = "paid";
     }
 
@@ -490,23 +501,17 @@ export async function listBookings(req, res) {
       .limit(lim)
       .lean()
       .exec();
-    return res.json({
-      success: true,
-      total,
-      page: pg,
-      limit: lim,
-      items,
-    });
+
+    return res.json({ success: true, total, page: pg, limit: lim, items });
   } catch (err) {
-    console.error("listBookings error:", err && err.stack ? err.stack : err);
-    return res.status(500).json({
-      success: false,
-      message: "Server error",
-    });
+    console.error("listBookings error:", err?.stack || err);
+    return res.status(500).json({ success: false, message: "Server error" });
   }
 }
 
 // DELETE BOOKING
+
+
 export async function deleteBooking(req, res) {
   try {
     const { id } = req.params;
@@ -556,7 +561,7 @@ export async function getOccupiedSeats(req, res) {
     const q = {
       showtime: { $gte: start, $lt: end },
       auditorium,
-      status: { $in: BLOCKING_STATUSES },
+      status: { $in: ["paid", "confirmed"] },
     };
     const movieClauses = buildMovieMatchClause(movieId, movieName);
     if (movieClauses.length > 0) q.$or = movieClauses;

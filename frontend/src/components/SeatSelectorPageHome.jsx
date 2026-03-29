@@ -1,4 +1,3 @@
-
 import React, { useEffect, useState, useMemo } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import axios from "axios";
@@ -256,7 +255,7 @@ export default function SeatSelectorPage() {
         const token = getAuthToken();
         const headers = token ? { Authorization: `Bearer ${token}` } : {};
         const res = await axios.get(`${API_BASE}/api/bookings`, {
-          params: { movieId: movieIdParam, limit: 1000 },
+          params: { movieId: movieIdParam, limit: 1000, paymentStatus: "paid" },
           headers,
           timeout: 8000,
         });

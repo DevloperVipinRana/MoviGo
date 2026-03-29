@@ -1,17 +1,21 @@
-import React, { use, useEffect, useMemo, useState } from "react";
-import { movieDetailHStyles } from "../assets/dummyStyles";
-import movies from "../assets/dummymoviedata";
-import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
+// src/pages/MovieDetailPage.jsx
+import React, { useMemo, useEffect, useState } from "react";
+import { useParams, Link, useNavigate, useLocation } from "react-router-dom";
+import axios from "axios";
 import {
   ArrowLeft,
   Calendar,
   Clock,
-  Play,
   Star,
-  User,
-  Users,
+  Play,
   X,
+  Users,
+  User,
 } from "lucide-react";
+import { toast } from "react-toastify";
+import { movieDetailHStyles } from "../assets/dummyStyles";
+
+const API_BASE = "http://localhost:5000";
 
 const ROWS = [
   { id: "A", type: "standard", count: 8 },
@@ -20,10 +24,9 @@ const ROWS = [
   { id: "D", type: "recliner", count: 8 },
   { id: "E", type: "recliner", count: 8 },
 ];
-
 const TOTAL_SEATS = ROWS.reduce((s, r) => s + r.count, 0);
 
-const FallbackAvatar = ({ className = "w-12 h-12", alt = "avatar" }) => (
+const FallbackAvatar = ({ className = "w-12 h-12" }) => (
   <div
     className={`${className} bg-gray-700 rounded-full flex items-center justify-center text-sm text-gray-300`}
     aria-hidden="true"
@@ -32,26 +35,66 @@ const FallbackAvatar = ({ className = "w-12 h-12", alt = "avatar" }) => (
   </div>
 );
 
-/** Utility: extract a YouTube ID from either an ID or a full URL */
+// Function to format duration to hours and minutes
+const formatDuration = (duration) => {
+  if (!duration) return "N/A";
+  
+  // If it's already in "Xh Ym" format, return as is
+  if (typeof duration === 'string' && /^\d+h\s*\d*m?$/.test(duration)) {
+    return duration;
+  }
+  
+  // If it's a number (in minutes), convert to hours and minutes
+  if (typeof duration === 'number') {
+    const hours = Math.floor(duration / 60);
+    const minutes = duration % 60;
+    return `${hours}h ${minutes}m`;
+  }
+  
+  // If it's a string that might contain numbers, try to parse
+  if (typeof duration === 'string') {
+    // Try to extract numbers for minutes
+    const minutesMatch = duration.match(/(\d+)\s*min/);
+    if (minutesMatch) {
+      const totalMinutes = parseInt(minutesMatch[1]);
+      const hours = Math.floor(totalMinutes / 60);
+      const minutes = totalMinutes % 60;
+      return `${hours}h ${minutes}m`;
+    }
+    
+    // Try to extract hours and minutes separately
+    const hoursMatch = duration.match(/(\d+)\s*h/);
+    const minsMatch = duration.match(/(\d+)\s*m/);
+    
+    if (hoursMatch && minsMatch) {
+      return `${hoursMatch[1]}h ${minsMatch[1]}m`;
+    } else if (hoursMatch) {
+      return `${hoursMatch[1]}h 0m`;
+    } else if (minsMatch) {
+      const totalMinutes = parseInt(minsMatch[1]);
+      const hours = Math.floor(totalMinutes / 60);
+      const minutes = totalMinutes % 60;
+      return `${hours}h ${minutes}m`;
+    }
+  }
+  
+  // Return original if no formatting could be applied
+  return duration;
+};
+
 function extractYouTubeId(urlOrId) {
   if (!urlOrId) return null;
   if (/^[A-Za-z0-9_-]{6,}$/.test(urlOrId)) return urlOrId;
-
   const re =
     /(?:youtube\.com\/(?:watch\?v=|embed\/|v\/|.*[?&]v=)|youtu\.be\/)([A-Za-z0-9_-]{6,})/i;
   const m = urlOrId.match(re);
   return m ? m[1] : null;
 }
-
-/** Builds embed URL with autoplay and minimal related-video noise */
 const getEmbedUrl = (id) =>
   id
     ? `https://www.youtube.com/embed/${id}?autoplay=1&rel=0&modestbranding=1`
     : null;
 
-/**
- * Helpers to format dates/times in a target timezone using Intl.formatToParts.
- */
 const getParts = (dateLike, timeZone) => {
   const dt = typeof dateLike === "string" ? new Date(dateLike) : dateLike;
   const parts = new Intl.DateTimeFormat("en", {
@@ -72,29 +115,95 @@ const getParts = (dateLike, timeZone) => {
   return map;
 };
 
-/** Returns date key 'YYYY-MM-DD' for the given date/ISO in given timezone */
 const formatDateKey = (dateLike, timeZone = "Asia/Kolkata") => {
   const p = getParts(dateLike, timeZone);
   return `${p.year}-${p.month}-${p.day}`;
 };
 
-/** Returns a human time string like "1:30 PM" (12-hour) for the given ISO in timezone */
 const formatTimeInTZ = (dateLike, timeZone = "Asia/Kolkata") => {
   const p = getParts(dateLike, timeZone);
   const hour = String(Number(p.hour));
   return `${hour}:${p.minute} ${String(
-    p.dayPeriod ?? p.ampm ?? "",
+    p.dayPeriod ?? p.ampm ?? ""
   ).toUpperCase()}`;
 };
 
-const MovieDetailPageHome = () => {
+/* helpers */
+function getImageUrl(candidate) {
+  if (!candidate || typeof candidate !== "string") return null;
+  const s = candidate.trim();
+  if (!s) return null;
+  if (s.startsWith("http://") || s.startsWith("https://")) return s;
+  const cleaned = s.replace(/^uploads\//, "");
+  return `${API_BASE}/uploads/${cleaned}`;
+}
+
+/* convert hh:mm + AM/PM -> 24h hh:mm */
+function to24Hour(timeStr = "00:00", ampm = "") {
+  const [hRaw = "0", mRaw = "00"] = String(timeStr).split(":");
+  let h = Number(hRaw || 0);
+  const m = String(Number(mRaw) || 0).padStart(2, "0");
+  const a = (ampm || "").toUpperCase();
+
+  // If time is already in 24-hour format, keep it as-is (13-23).
+  if (h > 23) {
+    h = 23;
+  } else if (h >= 13 && !a) {
+    // already 24h, no conversion needed
+  } else if (a === "AM") {
+    if (h === 12) h = 0;
+  } else if (a === "PM") {
+    if (h >= 1 && h <= 11) h += 12;
+  }
+
+  return `${String(h).padStart(2, "0")}:${m}`;
+}
+
+/* slot -> ISO. Handles your slotSchema { date, time, ampm } and also fallback shapes */
+function slotToISO(slot) {
+  if (!slot) return null;
+  if (typeof slot === "string") return slot;
+  if (typeof slot === "object") {
+    // preferred: { date: "YYYY-MM-DD", time: "hh:mm", ampm: "AM" }
+    if (slot.date && (slot.time || slot.datetime || slot.iso)) {
+      const date = slot.date;
+      const timeStr = slot.time || slot.datetime || slot.iso || "00:00";
+      const ampm = slot.ampm || slot.amp || "";
+      const hhmm = to24Hour(timeStr, ampm);
+      // append seconds and IST offset for consistent parsing
+      return `${date}T${hhmm}:00+05:30`;
+    }
+    // fallback object forms
+    if (slot.datetime) return slot.datetime;
+    if (slot.time && slot.date == null) {
+      // maybe contains full iso in time
+      return slot.time;
+    }
+  }
+  return null;
+}
+
+/* normalize alternate slot sources to something we can iterate */
+function normalizeSlotSource(movie) {
+  if (!movie) return [];
+  if (Array.isArray(movie.slots) && movie.slots.length) return movie.slots;
+  if (Array.isArray(movie.showtimes) && movie.showtimes.length)
+    return movie.showtimes;
+  if (Array.isArray(movie.showtime) && movie.showtime.length)
+    return movie.showtime;
+  return [];
+}
+
+/* component */
+export default function MovieDetailPage() {
   const { id } = useParams();
-  const movieId = Number(id);
-  const movie = useMemo(() => movies.find((m) => m.id === movieId), [movieId]);
+  const movieIdParam = id;
   const navigate = useNavigate();
   const location = useLocation();
 
-  // Trailer-related state
+  const [movie, setMovie] = useState(null);
+  const [loading, setLoading] = useState(true);
+
   const [showTrailer, setShowTrailer] = useState(false);
   const [selectedTrailerId, setSelectedTrailerId] = useState(null);
   const [selectedMovie, setSelectedMovie] = useState(null);
@@ -103,44 +212,109 @@ const MovieDetailPageHome = () => {
   const [selectedTime, setSelectedTime] = useState(null);
 
   useEffect(() => {
-    if (!movie) {
-      toast.error("Movie not found");
+    let mounted = true;
+    const fetchMovie = async () => {
+      setLoading(true);
+      try {
+        const url = `${API_BASE}/api/movies/${encodeURIComponent(
+          movieIdParam
+        )}`;
+        const res = await axios.get(url);
+        const data = res?.data;
+        if (!mounted) return;
+        if (!data || data.success === false) {
+          toast.error((data && data.message) || "Failed to load movie");
+          setMovie(null);
+        } else {
+          const item = data.item || data.data || (data.success ? data : null);
+          if (item) {
+            // normalize some image fields
+            if (
+              !item.producer &&
+              Array.isArray(item.producers) &&
+              item.producers.length
+            ) {
+              item.producer = item.producers[0];
+            }
+            if (
+              item.poster &&
+              typeof item.poster === "string" &&
+              !item.poster.startsWith("http")
+            ) {
+              item.poster = getImageUrl(item.poster);
+            }
+            if (
+              item.thumbnail &&
+              typeof item.thumbnail === "string" &&
+              !item.thumbnail.startsWith("http")
+            ) {
+              item.thumbnail = getImageUrl(item.thumbnail);
+            }
+            ["cast", "directors", "producers"].forEach((k) => {
+              if (Array.isArray(item[k])) {
+                item[k] = item[k].map((p) => {
+                  if (!p) return p;
+                  const preview =
+                    p.preview ||
+                    (p.file ? getImageUrl(p.file) : null) ||
+                    (p.image ? getImageUrl(p.image) : null);
+                  return { ...p, preview, img: p.img || preview };
+                });
+              }
+            });
+          }
+          setMovie(item || null);
+        }
+      } catch (err) {
+        console.error("Failed to fetch movie:", err);
+        toast.error("Failed to fetch movie from server");
+        setMovie(null);
+      } finally {
+        if (mounted) setLoading(false);
+      }
+    };
+    if (movieIdParam) fetchMovie();
+    else {
+      setLoading(false);
+      setMovie(null);
     }
-  }, [movie]);
+    return () => {
+      mounted = false;
+    };
+  }, [movieIdParam]);
 
+  useEffect(() => {
+    if (!movie && !loading) toast.error("Movie not found.");
+  }, [movie, loading]);
+
+  /* Build showtimeDays using slotToISO for your slotSchema */
   const showtimeDays = useMemo(() => {
     if (!movie) return [];
-
     const TZ = "Asia/Kolkata";
     const slotsByDate = {};
 
-    (movie.slots || []).forEach((raw) => {
-      let iso = null;
-      let audi = "Audi 1";
+    const rawSlots = normalizeSlotSource(movie);
 
-      if (!raw) return;
-
-      if (typeof raw === "string") {
-        iso = raw;
-        audi = "Audi 1";
-      } else if (typeof raw === "object" && raw.time) {
-        iso = raw.time;
-        audi = raw.audi ?? "Audi 1";
-      } else {
-        return;
+    rawSlots.forEach((raw) => {
+      try {
+        const iso = slotToISO(raw);
+        if (!iso) return;
+        const d = new Date(iso);
+        if (Number.isNaN(d.getTime())) return;
+        const dateKey = formatDateKey(d, TZ);
+        if (!slotsByDate[dateKey]) slotsByDate[dateKey] = [];
+        // preserve audi if object provided
+        const audi =
+          (raw && typeof raw === "object" && (raw.audi || raw.auditorium)) ||
+          "Audi 1";
+        slotsByDate[dateKey].push({ iso, audi });
+      } catch (e) {
+        // ignore bad slot
       }
-
-      const d = new Date(iso);
-      if (Number.isNaN(d.getTime())) return;
-
-      const dateKey = formatDateKey(d, TZ);
-      if (!slotsByDate[dateKey]) slotsByDate[dateKey] = [];
-      slotsByDate[dateKey].push({ iso, audi });
     });
 
     const dateKeys = Object.keys(slotsByDate).sort();
-
-    const days = dateKeys.map((key) => {
+    return dateKeys.map((key) => {
       const [yy, mm, dd] = key.split("-").map(Number);
       const asDate = new Date(Date.UTC(yy, mm - 1, dd));
       const dayName = new Intl.DateTimeFormat("en-US", {
@@ -157,54 +331,43 @@ const MovieDetailPageHome = () => {
         timeZone: TZ,
       }).format(asDate);
 
-      const rawSlots = slotsByDate[key] || [];
-
-      const showtimes = rawSlots
+      const showtimes = (slotsByDate[key] || [])
         .map(({ iso, audi }) => {
           const d = new Date(iso);
           if (Number.isNaN(d.getTime())) return null;
-          const timeLabel = formatTimeInTZ(iso, TZ);
           return {
-            time: timeLabel,
+            time: formatTimeInTZ(d, TZ),
             datetime: iso,
             timestamp: d.getTime(),
             audi,
           };
         })
         .filter(Boolean)
-        .sort((a, b) => a.timestamp - b.timestamp)
-        .map(({ time, datetime, audi }) => ({ time, datetime, audi }));
+        .sort((a, b) => a.timestamp - b.timestamp);
 
-      return {
-        date: key,
-        dayName,
-        shortDay,
-        dateStr,
-        showtimes,
-      };
+      return { date: key, dayName, shortDay, dateStr, showtimes };
     });
-
-    return days;
   }, [movie]);
 
-  // Ensure selectedDay is valid when showtimeDays changes
   useEffect(() => {
     if (showtimeDays.length === 0) {
       setSelectedDay(0);
       setSelectedTime(null);
       return;
     }
-    setSelectedDay((cur) => {
-      const newIndex = cur >= 0 && cur < showtimeDays.length ? cur : 0;
-      return newIndex;
-    });
+    setSelectedDay((cur) => (cur >= 0 && cur < showtimeDays.length ? cur : 0));
     setSelectedTime(null);
   }, [showtimeDays]);
 
-  // Trailer open/close handlers
   const openTrailer = (movieObj) => {
-    const idFromField = movieObj?.trailerId ?? null;
-    const id = idFromField || extractYouTubeId(movieObj?.trailer || "");
+    const trailerCandidate =
+      movieObj?.trailerUrl ||
+      movieObj?.trailer ||
+      movieObj?.trailerId ||
+      movieObj?.latestTrailer?.videoId ||
+      movieObj?.latestTrailer?.url ||
+      null;
+    const id = extractYouTubeId(trailerCandidate || "");
     if (!id) {
       toast.info("Trailer not available for this movie.");
       return;
@@ -213,67 +376,68 @@ const MovieDetailPageHome = () => {
     setSelectedTrailerId(id);
     setShowTrailer(true);
   };
-
   const closeTrailer = () => {
     setShowTrailer(false);
     setSelectedTrailerId(null);
     setSelectedMovie(null);
   };
 
-  if (!movie) {
+  if (loading)
+    return (
+      <div className={movieDetailHStyles.notFoundContainer}>
+        <div className={movieDetailHStyles.notFoundContent}>
+          <h2 className={movieDetailHStyles.notFoundTitle}>Loading...</h2>
+        </div>
+      </div>
+    );
+  if (!movie)
     return (
       <div className={movieDetailHStyles.notFoundContainer}>
         <div className={movieDetailHStyles.notFoundContent}>
           <h2 className={movieDetailHStyles.notFoundTitle}>Movie not found</h2>
           <Link to="/movies" className={movieDetailHStyles.notFoundLink}>
-            Back to Movies
+            Back to movies
           </Link>
         </div>
       </div>
     );
-  }
 
-  //   SEAT SELECTOR PATH
-  const buildSeatSelectorPath = (movieIdParam, datetime) => {
+  const buildSeatSelectorPath = (movieIdParamLocal, datetime) => {
     const key = encodeURIComponent(datetime);
     const pathLower = (location.pathname || "").toLowerCase();
-    const usesSingular = pathLower.includes("/movie");
-
-    if (usesSingular) {
-      return `/movie/${movieIdParam}/seat-selector/${key}`;
-    }
-    return `/movies/${movieIdParam}/seat-selector/${key}`;
+    const usesSingular = pathLower.includes("/movie/");
+    const mid = movie._id || movie.id || movieIdParamLocal || movieIdParam;
+    return usesSingular
+      ? `/movie/${mid}/seat-selector/${key}`
+      : `/movies/${mid}/seat-selector/${key}`;
   };
-
   const handleTimeSelect = (datetime) => {
     setSelectedTime(datetime);
-    const path = buildSeatSelectorPath(movie.id, datetime);
-    navigate(path);
+    navigate(
+      buildSeatSelectorPath(movie._id || movie.id || movieIdParam, datetime)
+    );
   };
-
   const handleBookNow = () => {
-    if (selectedTime) {
-      const path = buildSeatSelectorPath(movie.id, selectedTime);
-      navigate(path);
-    } else {
-      toast.error("Please select a showtime first");
-    }
+    if (selectedTime)
+      navigate(
+        buildSeatSelectorPath(
+          movie._id || movie.id || movieIdParam,
+          selectedTime
+        )
+      );
+    else toast.error("Please select a showtime first");
   };
 
-  /**
-   * Get booked count for specific datetime and audi (if available).
-   * - First tries per-audi key: bookings_{movieId}_{datetime}_{audi}
-   * - Falls back to legacy key without audi: bookings_{movieId}_{datetime}
-   */
   const getBookedCountFor = (datetime, audi = "Audi 1") => {
     try {
-      const keyWithAudi = `bookings_${movie.id}_${datetime}_${audi}`;
+      const mid = movie._id || movie.id || movieIdParam;
+      const keyWithAudi = `bookings_${mid}_${datetime}_${audi}`;
       const rawWith = localStorage.getItem(keyWithAudi);
       if (rawWith) {
         const arr = JSON.parse(rawWith);
         if (Array.isArray(arr)) return arr.length;
       }
-      const legacyKey = `bookings_${movie.id}_${datetime}`;
+      const legacyKey = `bookings_${mid}_${datetime}`;
       const rawLegacy = localStorage.getItem(legacyKey);
       if (rawLegacy) {
         const arrLegacy = JSON.parse(rawLegacy);
@@ -285,19 +449,34 @@ const MovieDetailPageHome = () => {
     }
   };
 
-  const firstShowtime = useMemo(() => {
-    if (!showtimeDays.length) return null;
-    for (const day of showtimeDays) {
-      if (day.showtimes && day.showtimes.length) {
-        return day.showtimes[0].datetime;
-      }
-    }
-    return null;
-  }, [showtimeDays]);
+  const posterSrc =
+    movie.img ||
+    movie.thumbnail ||
+    movie.poster ||
+    movie.posterUrl ||
+    `${API_BASE}/uploads/placeholder.png`;
+  const categoryList = Array.isArray(movie.categories)
+    ? movie.categories
+    : Array.isArray(movie.genres)
+    ? movie.genres
+    : movie.genre
+    ? [movie.genre]
+    : [];
+  const producer =
+    movie.producer ||
+    (Array.isArray(movie.producers) && movie.producers[0]) ||
+    null;
+  const producerImg = producer
+    ? producer.img ||
+      producer.preview ||
+      (producer.file ? getImageUrl(producer.file) : null)
+    : null;
+
+  // Format the duration for display
+  const formattedDuration = formatDuration(movie.duration ?? movie.runtime);
 
   return (
     <div className={movieDetailHStyles.pageContainer}>
-      {/* Trailer Modal */}
       {showTrailer && selectedTrailerId && (
         <div className={movieDetailHStyles.trailerModal}>
           <div className={movieDetailHStyles.trailerContainer}>
@@ -326,7 +505,6 @@ const MovieDetailPageHome = () => {
       )}
 
       <div className={movieDetailHStyles.mainContainer}>
-        {/* Header */}
         <div className={movieDetailHStyles.headerContainer}>
           <Link to="/movies" className={movieDetailHStyles.backButton}>
             <ArrowLeft size={18} />{" "}
@@ -334,7 +512,6 @@ const MovieDetailPageHome = () => {
           </Link>
         </div>
 
-        {/* Title */}
         <div className={movieDetailHStyles.titleContainer}>
           <h1
             className={movieDetailHStyles.movieTitle}
@@ -344,24 +521,24 @@ const MovieDetailPageHome = () => {
               letterSpacing: "0.08em",
             }}
           >
-            {movie.title}
+            {movie.title || movie.movieName || "Untitled"}
           </h1>
           <div className={movieDetailHStyles.movieInfoContainer}>
             <span className={movieDetailHStyles.rating}>
               <Star className={movieDetailHStyles.ratingIcon} />
-              {movie.rating}/10
+              {movie.rating ?? "N/A"}/10
             </span>
             <span className={movieDetailHStyles.duration}>
               <Clock className={movieDetailHStyles.durationIcon} />
-              {movie.duration}
+              {formattedDuration}
             </span>
-            <span className={movieDetailHStyles.genre}>{movie.genre}</span>
+            <span className={movieDetailHStyles.genre}>
+              {categoryList.length ? categoryList.join(", ") : "—"}
+            </span>
           </div>
         </div>
 
-        {/* Layout */}
         <div className={movieDetailHStyles.mainGrid}>
-          {/* Poster */}
           <div className={movieDetailHStyles.posterContainer}>
             <div className={movieDetailHStyles.posterCard}>
               <div
@@ -369,7 +546,7 @@ const MovieDetailPageHome = () => {
                 style={{ maxWidth: "320px" }}
               >
                 <img
-                  src={movie.img}
+                  src={posterSrc}
                   alt={movie.title}
                   loading="lazy"
                   onError={(e) => {
@@ -380,7 +557,6 @@ const MovieDetailPageHome = () => {
                   className={movieDetailHStyles.posterImage}
                 />
               </div>
-
               <button
                 onClick={() => openTrailer(movie)}
                 className={movieDetailHStyles.trailerButton}
@@ -392,7 +568,6 @@ const MovieDetailPageHome = () => {
             </div>
           </div>
 
-          {/* Showtimes + Cast */}
           <div className={movieDetailHStyles.showtimesContainer}>
             <div className={movieDetailHStyles.showtimesCard}>
               <h3
@@ -403,7 +578,6 @@ const MovieDetailPageHome = () => {
                 <span>Showtimes</span>
               </h3>
 
-              {/* Day selection */}
               <div className={movieDetailHStyles.daySelection}>
                 {showtimeDays.length ? (
                   showtimeDays.map((day, index) => (
@@ -436,18 +610,15 @@ const MovieDetailPageHome = () => {
                 )}
               </div>
 
-              {/* Showtimes grid */}
               <div className={movieDetailHStyles.showtimesGrid}>
                 {showtimeDays[selectedDay]?.showtimes &&
                 showtimeDays[selectedDay].showtimes.length ? (
                   showtimeDays[selectedDay].showtimes.map((showtime, index) => {
-                    // We do not display audi on this page; bookedCount still checks audi (fallbacks to legacy)
                     const bookedCount = getBookedCountFor(
                       showtime.datetime,
-                      showtime.audi,
+                      showtime.audi
                     );
                     const isSoldOut = bookedCount >= TOTAL_SEATS;
-
                     return (
                       <button
                         key={index}
@@ -460,9 +631,13 @@ const MovieDetailPageHome = () => {
                         title={
                           isSoldOut
                             ? "All seats booked for this showtime"
-                            : `Seats available: ${Math.max(0, TOTAL_SEATS - bookedCount)}`
+                            : `Seats available: ${Math.max(
+                                0,
+                                TOTAL_SEATS - bookedCount
+                              )}`
                         }
                         aria-disabled={isSoldOut}
+                        disabled={isSoldOut}
                       >
                         <span>{showtime.time}</span>
                         {isSoldOut && (
@@ -493,7 +668,6 @@ const MovieDetailPageHome = () => {
               )}
             </div>
 
-            {/* Cast */}
             <div className={movieDetailHStyles.castCard}>
               <h3
                 className={movieDetailHStyles.castTitle}
@@ -502,15 +676,20 @@ const MovieDetailPageHome = () => {
                 <Users className={movieDetailHStyles.castTitleIcon} />
                 <span>Cast</span>
               </h3>
-
               <div className={movieDetailHStyles.castGrid}>
                 {movie.cast && movie.cast.length ? (
                   movie.cast.map((c, idx) => (
                     <div key={idx} className={movieDetailHStyles.castMember}>
                       <div className={movieDetailHStyles.castImageContainer}>
-                        {c.img ? (
+                        {c.img || c.preview || c.file ? (
                           <img
-                            src={c.img}
+                            src={
+                              c.img && c.img.startsWith("http")
+                                ? c.img
+                                : c.preview && c.preview.startsWith("http")
+                                ? c.preview
+                                : getImageUrl(c.img || c.preview || c.file)
+                            }
                             alt={c.name}
                             loading="lazy"
                             className={movieDetailHStyles.castImage}
@@ -542,7 +721,6 @@ const MovieDetailPageHome = () => {
           </div>
         </div>
 
-        {/* Story */}
         <div className={movieDetailHStyles.storyCard}>
           <h2
             className={movieDetailHStyles.storyTitle}
@@ -550,10 +728,11 @@ const MovieDetailPageHome = () => {
           >
             Story
           </h2>
-          <p className={movieDetailHStyles.storyText}>{movie.synopsis}</p>
+          <p className={movieDetailHStyles.storyText}>
+            {movie.story || movie.description || movie.synopsis}
+          </p>
         </div>
 
-        {/* Director & Producer */}
         <div className={movieDetailHStyles.crewGrid}>
           <div className={movieDetailHStyles.crewCard}>
             <div className={movieDetailHStyles.crewTitle}>
@@ -562,19 +741,25 @@ const MovieDetailPageHome = () => {
             </div>
             <div className={movieDetailHStyles.crewContent}>
               {(() => {
-                const directors = Array.isArray(movie.director)
-                  ? movie.director
+                const directors = Array.isArray(movie.directors)
+                  ? movie.directors
                   : movie.director
-                    ? [movie.director]
-                    : [];
+                  ? [movie.director]
+                  : [];
                 return (
                   <div className={movieDetailHStyles.crewGridInner}>
                     {directors.length ? (
                       directors.slice(0, 2).map((d, i) => (
                         <div key={i} className="flex flex-col items-center">
-                          {d?.img ? (
+                          {d?.img || d?.preview || d?.file ? (
                             <img
-                              src={d.img}
+                              src={
+                                d.img && d.img.startsWith("http")
+                                  ? d.img
+                                  : d.preview && d.preview.startsWith("http")
+                                  ? d.preview
+                                  : getImageUrl(d.img || d.preview || d.file)
+                              }
                               alt={d.name || `Director ${i + 1}`}
                               loading="lazy"
                               className={movieDetailHStyles.crewImage}
@@ -614,10 +799,10 @@ const MovieDetailPageHome = () => {
               <h3 style={{ fontFamily: "'Cinzel', serif" }}>Producer</h3>
             </div>
             <div className={movieDetailHStyles.crewContent}>
-              {movie.producer?.img ? (
+              {producerImg ? (
                 <img
-                  src={movie.producer.img}
-                  alt={movie.producer.name}
+                  src={producerImg}
+                  alt={producer?.name}
                   loading="lazy"
                   className={movieDetailHStyles.crewImage}
                   onError={(e) => {
@@ -630,7 +815,7 @@ const MovieDetailPageHome = () => {
                 <FallbackAvatar className="w-20 h-20 sm:w-24 sm:h-24 mb-3 sm:mb-4" />
               )}
               <div className={movieDetailHStyles.crewName}>
-                {movie.producer?.name ?? "N/A"}
+                {producer?.name ?? "N/A"}
               </div>
             </div>
           </div>
@@ -640,6 +825,4 @@ const MovieDetailPageHome = () => {
       <style>{movieDetailHStyles.customCSS}</style>
     </div>
   );
-};
-
-export default MovieDetailPageHome;
+}

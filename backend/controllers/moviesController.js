@@ -277,7 +277,7 @@ export async function getMovies(req, res) {
       type,
       sort = "-createdAt",
       page = 1,
-      limit = 12,
+      limit = 520,
       search,
       latestTrailers,
     } = req.query;
