@@ -3,7 +3,7 @@ import { styles5, customStyles } from "../assets/dummyStyles";
 import axios from "axios";
 import { Film, Ticket, Star, Calendar, Play as PlayIcon, Search, X, Clock, Play } from "lucide-react";
 
-const API_BASE = "http://localhost:5000";
+const API_BASE = import.meta.env.VITE_API_BASE || "http://localhost:5000";
 
 function getImageUrl(maybe) {
   // Convert filename, uploads/filename, or partial to a full uploads URL.

@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { styles3, fontStyles2 } from "../assets/dummyStyles";
 import axios from "axios";
 
-const API_BASE = "http://localhost:5000";
+const API_BASE = import.meta.env.VITE_API_BASE || "http://localhost:5000";
 
 // format INR
 const fmtINR = (num) =>

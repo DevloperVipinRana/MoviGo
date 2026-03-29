@@ -15,7 +15,7 @@ import {
 import { toast } from "react-toastify";
 import { movieDetailHStyles } from "../assets/dummyStyles";
 
-const API_BASE = "http://localhost:5000";
+const API_BASE = import.meta.env.VITE_API_BASE || "http://localhost:5000";
 
 const ROWS = [
   { id: "A", type: "standard", count: 8 },

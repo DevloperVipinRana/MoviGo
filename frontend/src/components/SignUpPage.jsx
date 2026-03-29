@@ -16,7 +16,7 @@ import {
 } from "lucide-react";
 import axios from 'axios'
 
-const API_BASE = 'http://localhost:5000/api/auth'
+const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:5000'
 
 const SignUpPage = () => {
   const [formData, setFormData] = useState({
@@ -122,7 +122,7 @@ const SignUpPage = () => {
         password: formData.password,
       }
 
-      const response = await axios.post(`${API_BASE}/register`, payload, {
+      const response = await axios.post(`${API_BASE}/api/auth/register`, payload, {
         headers: {'Content-Type': "application/json"},
       });
       if(response.data && response.data.success){
