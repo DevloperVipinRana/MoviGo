@@ -404,7 +404,7 @@ const AddPage = () => {
     }
 
     try {
-      const resp = await axios.post(`${API_HOST}/api/movies`, form, {
+      const resp = await axios.post(`${API_BASE}/api/movies`, form, {
         headers: { "Content-Type": "multipart/form-data" },
       });
       if (resp?.data?.success) {
