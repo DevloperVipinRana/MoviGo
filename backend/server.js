@@ -18,9 +18,15 @@ app.use(express.urlencoded({ extended: true }));
 // DB
 connectDB();
 
+// Ensure uploads directory exists at runtime (important for deployed containers)
+import fs from 'fs';
+const uploadsPath = path.join(process.cwd(), 'uploads');
+if (!fs.existsSync(uploadsPath)) {
+  fs.mkdirSync(uploadsPath, { recursive: true });
+}
 
 // ROUTES
-app.use('/uploads', express.static(path.join(process.cwd(), "uploads")));
+app.use('/uploads', express.static(uploadsPath));
 app.use('/api/auth', userRouter);
 app.use('/api/movies', movieRouter);
 app.use('/api/bookings', bookingRouter);
