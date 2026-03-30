@@ -6,8 +6,6 @@ import { createMovie, deleteMovie, getMovieById, getMovies } from "../controller
 
 const movieRouter = express.Router();
 
-const fs = require('fs');
-
 const storage = multer.diskStorage({
   destination: function (req, file, cb) {
     const uploadDir = path.join(process.cwd(), 'uploads');
