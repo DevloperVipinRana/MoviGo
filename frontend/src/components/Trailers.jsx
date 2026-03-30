@@ -131,7 +131,7 @@ const mapMovieToTrailerItem = (movie) => {
 };
 
 const Trailers = () => {
-  const [featuredTrailer, setFeaturedTrailer] = useState([]);
+  const [featuredTrailer, setFeaturedTrailer] = useState(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
   const videoRef = useRef(null);
@@ -156,7 +156,17 @@ const Trailers = () => {
 
         const mapped = items.map(mapMovieToTrailerItem);
         setTrailers(mapped);
-        setFeaturedTrailer(mapped[0] || null);
+        setFeaturedTrailer(mapped[0] || {
+          id: "",
+          title: "No Trailer Available",
+          thumbnail: PLACEHOLDER_THUMB,
+          videoUrl: "",
+          duration: "",
+          year: "",
+          genre: "",
+          description: "",
+          credits: {},
+        });
         setLoading(false);
       } catch (err) {
         if (err.name === "AbortError") return;
@@ -290,6 +300,27 @@ const Trailers = () => {
   }
 
   const dataToRender = trailers || [];
+  const safeFeaturedTrailer = featuredTrailer || {
+    id: "",
+    title: "No trailer selected",
+    thumbnail: PLACEHOLDER_THUMB,
+    videoUrl: "",
+    duration: "",
+    year: "",
+    genre: "",
+    description: "",
+    credits: {},
+  };
+
+  if (dataToRender.length === 0) {
+    return (
+      <div className={trailersStyles.container}>
+        <div className="py-12 text-center text-gray-300">
+          No trailers found yet. Please add trailers or check your data source.
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className={trailersStyles.container}>
@@ -416,8 +447,8 @@ const Trailers = () => {
                   <div className={trailersStyles.videoWrapper}>
                     <iframe
                       className={trailersStyles.videoIframe}
-                      src={buildIframeSrc(featuredTrailer.videoUrl)}
-                      title={featuredTrailer.title}
+                      src={buildIframeSrc(safeFeaturedTrailer.videoUrl)}
+                      title={safeFeaturedTrailer.title}
                       frameBorder="0"
                       allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
                       allowFullScreen
@@ -437,8 +468,8 @@ const Trailers = () => {
                 ) : (
                   <div className={trailersStyles.thumbnailContainer}>
                     <img
-                      src={featuredTrailer.thumbnail}
-                      alt={featuredTrailer.title}
+                      src={safeFeaturedTrailer.thumbnail}
+                      alt={safeFeaturedTrailer.title}
                       className={trailersStyles.thumbnailImage}
                       loading="eager"
                     />
@@ -457,22 +488,22 @@ const Trailers = () => {
               <div className={trailersStyles.trailerInfo}>
                 <div className={trailersStyles.infoHeader}>
                   <h2 className={trailersStyles.trailerTitle}>
-                    {featuredTrailer.title}
+                    {safeFeaturedTrailer.title}
                   </h2>
                   <div className={trailersStyles.trailerMeta}>
                     <span className={trailersStyles.metaItem}>
                       <Clock size={16} className={trailersStyles.metaIcon} />
-                      {featuredTrailer.duration}
+                      {safeFeaturedTrailer.duration}
                     </span>
                     <span className={trailersStyles.metaItem}>
                       <Calendar size={16} className={trailersStyles.metaIcon} />
-                      {featuredTrailer.year}
+                      {safeFeaturedTrailer.year}
                     </span>
                   </div>
                 </div>
 
                 <div className={trailersStyles.genreContainer}>
-                  {featuredTrailer.genre.split(",").map((genre, index) => (
+                  {(safeFeaturedTrailer.genre || "").split(",").map((genre, index) => (
                     <span key={index} className={trailersStyles.genreTag}>
                       {genre.trim()}
                     </span>
@@ -480,14 +511,14 @@ const Trailers = () => {
                 </div>
 
                 <p className={trailersStyles.description}>
-                  {featuredTrailer.description}
+                  {safeFeaturedTrailer.description}
                 </p>
 
                 <div className={trailersStyles.credits}>
                   <h3 className={trailersStyles.creditsTitle}>Credits</h3>
                   <div className={trailersStyles.creditsGrid}>
-                    {featuredTrailer.credits &&
-                      Object.entries(featuredTrailer.credits).map(
+                    {safeFeaturedTrailer.credits &&
+                      Object.entries(safeFeaturedTrailer.credits).map(
                         ([role, person]) => (
                           <div key={role} className={trailersStyles.creditItem}>
                             <div className={trailersStyles.creditImage}>
