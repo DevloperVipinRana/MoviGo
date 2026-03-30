@@ -269,7 +269,7 @@ const Navbar = () => {
         )}
       </div>
 
-      <style jsx>{navbarCSS}</style>
+      <style>{navbarCSS}</style>
     </nav>
   );
 };

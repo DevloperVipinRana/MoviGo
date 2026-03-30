@@ -155,7 +155,6 @@ const Trailers = () => {
         const items = Array.isArray(json.items) ? json.items : [];
 
         const mapped = items.map(mapMovieToTrailerItem);
-        console.log(mapped);
         setTrailers(mapped);
         setFeaturedTrailer(mapped[0] || null);
         setLoading(false);
@@ -515,7 +514,7 @@ const Trailers = () => {
           </div>
         </div>
       </main>
-      <style jsx>{trailersCSS}</style>
+      <style>{trailersCSS}</style>
     </div>
   );
 };
