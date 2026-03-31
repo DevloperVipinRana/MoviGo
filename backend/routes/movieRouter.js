@@ -1,42 +1,31 @@
 import express from "express";
-import multer from "multer";
-import path from "path";
-import fs from "fs";
+import { uploadAllFields, processUploadsToCloudinary } from "../config/cloudinary.js";
 import { createMovie, deleteMovie, getMovieById, getMovies } from "../controllers/moviesController.js";
 
 const movieRouter = express.Router();
 
-const storage = multer.diskStorage({
-  destination: function (req, file, cb) {
-    const uploadDir = path.join(process.cwd(), 'uploads');
-    if (!fs.existsSync(uploadDir)) {
-      fs.mkdirSync(uploadDir, { recursive: true });
+async function handleUpload(req, res, next) {
+  uploadAllFields(req, res, async (multerErr) => {
+    if (multerErr) {
+      console.error("Multer error:", multerErr?.message);
+      return res.status(400).json({ success: false, message: multerErr.message });
     }
-    cb(null, uploadDir);
-  },
-  filename: (req, file, cb) => {
-    const unique = Date.now() + "-" + Math.round(Math.random() * 1e5);
-    const ext = path.extname(file.originalname);
-    cb(null, `movie-${unique}${ext}`);
-  },
-});
+    try {
+      await processUploadsToCloudinary(req);
+      next();
+    } catch (err) {
+      console.error("Cloudinary processing error:", err?.message);
+      return res.status(500).json({
+        success: false,
+        message: "Image upload to Cloudinary failed: " + (err?.message || "unknown"),
+      });
+    }
+  });
+}
 
-const upload = multer({ storage }).fields([
-  { name: "poster", maxCount: 1 },
-  { name: "trailerUrl", maxCount: 1 },
-  { name: "videoUrl", maxCount: 1 },
-  { name: "ltThumbnail", maxCount: 1 },
-  { name: "castFiles", maxCount: 20 },
-  { name: "directorFiles", maxCount: 20 },
-  { name: "producerFiles", maxCount: 20 },
-  { name: "ltDirectorFiles", maxCount: 20 },
-  { name: "ltProducerFiles", maxCount: 20 },
-  { name: "ltSingerFiles", maxCount: 20 },
-]);
-
-movieRouter.post('/', upload, createMovie)
-movieRouter.get('/', getMovies);
-movieRouter.get('/:id', getMovieById);
-movieRouter.delete('/:id', deleteMovie);
+movieRouter.post("/",      handleUpload, createMovie);
+movieRouter.get("/",       getMovies);
+movieRouter.get("/:id",    getMovieById);
+movieRouter.delete("/:id", deleteMovie);
 
 export default movieRouter;
