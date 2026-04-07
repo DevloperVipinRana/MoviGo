@@ -106,6 +106,26 @@ export default function SeatSelectorPage() {
     let mounted = true;
     const fetchMovie = async () => {
       setLoading(true);
+
+      // Check cache first
+      const cacheKey = `movie_seat_selector_home_${movieIdParam}`;
+      const cached = sessionStorage.getItem(cacheKey);
+      const cacheTime = sessionStorage.getItem(`${cacheKey}_time`);
+      const CACHE_DURATION = 15 * 60 * 1000; // 15 minutes for movie details
+
+      if (cached && cacheTime && (Date.now() - parseInt(cacheTime)) < CACHE_DURATION) {
+        try {
+          const cachedData = JSON.parse(cached);
+          if (mounted) {
+            setMovie(cachedData);
+            setLoading(false);
+            return;
+          }
+        } catch (e) {
+          // Invalid cache, continue with API call
+        }
+      }
+
       try {
         const res = await axios.get(
           `${API_BASE}/api/movies/${encodeURIComponent(movieIdParam)}`
@@ -121,7 +141,14 @@ export default function SeatSelectorPage() {
             data.data ||
             (data.success && data.movie) ||
             (data.success ? data : null);
-          setMovie(item || null);
+          const processedItem = item || null;
+          setMovie(processedItem);
+
+          // Cache the movie data
+          if (processedItem) {
+            sessionStorage.setItem(cacheKey, JSON.stringify(processedItem));
+            sessionStorage.setItem(`${cacheKey}_time`, Date.now().toString());
+          }
         }
       } catch (err) {
         console.error("Failed to fetch movie:", err);

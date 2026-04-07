@@ -54,8 +54,28 @@ const MoviesPage = () => {
       setLoading(true);
       setError(null);
 
+      // Check cache first
+      const cacheKey = 'movies_cache';
+      const cached = sessionStorage.getItem(cacheKey);
+      const cacheTime = sessionStorage.getItem(`${cacheKey}_time`);
+      const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
+
+      if (cached && cacheTime && (Date.now() - parseInt(cacheTime)) < CACHE_DURATION) {
+        try {
+          const cachedData = JSON.parse(cached);
+          if (mounted) {
+            setMovies(cachedData);
+            setLoading(false);
+            return;
+          }
+        } catch (e) {
+          // Invalid cache, continue with API call
+        }
+      }
+
       try {
-        const url = `${API_BASE}/api/movies?type=normal&limit=200`;
+        // Reduced limit from 200 to 50 for better performance
+        const url = `${API_BASE}/api/movies?type=normal&limit=50`;
         const res = await fetch(url, { signal: ac.signal });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
 
@@ -65,6 +85,9 @@ const MoviesPage = () => {
         const mapped = items.map(mapBackendMovie);
         if (mounted) {
           setMovies(mapped);
+          // Cache the results
+          sessionStorage.setItem(cacheKey, JSON.stringify(mapped));
+          sessionStorage.setItem(`${cacheKey}_time`, Date.now().toString());
           setLoading(false);
         }
       } catch (err) {
@@ -72,7 +95,7 @@ const MoviesPage = () => {
         console.error("Failed to load movies:", err);
         // fallback: try a generic fetch for any movies
         try {
-          const res2 = await fetch(`${API_BASE}/api/movies?limit=200`);
+          const res2 = await fetch(`${API_BASE}/api/movies?limit=50`);
           if (!res2.ok) throw new Error(`Fallback HTTP ${res2.status}`);
           const json2 = await res2.json();
           const items2 = Array.isArray(json2.items) ? json2.items : [];

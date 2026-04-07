@@ -25,23 +25,57 @@ const Movies = () => {
     setError(null);
 
     async function loadFeaturedMovies() {
-      try {
-        const url = `${API_BASE}/api/movies?featured=true&limit=100`;
-        const res = await fetch(url, { signal: ac.signal });
+      // Check cache first
+      const cacheKey = 'featured_movies_cache';
+      const cached = sessionStorage.getItem(cacheKey);
+      const cacheTime = sessionStorage.getItem(`${cacheKey}_time`);
+      const CACHE_DURATION = 10 * 60 * 1000; // 10 minutes for featured movies
 
+      if (cached && cacheTime && (Date.now() - parseInt(cacheTime)) < CACHE_DURATION) {
+        try {
+          const cachedData = JSON.parse(cached);
+          if (Array.isArray(cachedData) && cachedData.length > 0) {
+            setMovies(cachedData);
+            setLoading(false);
+            return;
+          }
+        } catch (e) {
+          // Invalid cache, continue with API call
+        }
+      }
+
+      async function fetchFeatured(url) {
+        const res = await fetch(url, { signal: ac.signal });
         if (!res.ok) throw new Error(`fetch error: ${res.status}`);
         const json = await res.json();
-
         const items = json.items ?? (Array.isArray(json) ? json : []);
-
-        const featuredOnly = items.filter(
+        return items.filter(
           (it) =>
             it?.featured === true ||
             it?.isFeatured === true ||
             String(it?.type)?.toLowerCase() === "featured",
         );
+      }
 
-        setMovies(featuredOnly.slice(0, 6));
+      try {
+        // Use backend-supported query for featured movies
+        const url = `${API_BASE}/api/movies?type=featured&limit=20`;
+        let featuredOnly = await fetchFeatured(url);
+
+        if (featuredOnly.length === 0) {
+          const fallbackUrl = `${API_BASE}/api/movies?limit=50`;
+          featuredOnly = await fetchFeatured(fallbackUrl);
+        }
+
+        const limitedMovies = featuredOnly.slice(0, 6);
+        setMovies(limitedMovies);
+
+        // Cache the results only if we got movies
+        if (limitedMovies.length > 0) {
+          sessionStorage.setItem(cacheKey, JSON.stringify(limitedMovies));
+          sessionStorage.setItem(`${cacheKey}_time`, Date.now().toString());
+        }
+
         setLoading(false);
       } catch (err) {
         if (err.name === "AbortError") return;

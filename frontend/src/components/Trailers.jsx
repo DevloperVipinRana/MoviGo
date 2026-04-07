@@ -146,8 +146,27 @@ const Trailers = () => {
     setError(null);
 
     async function load() {
+      // Check cache first
+      const cacheKey = 'trailers_cache';
+      const cached = sessionStorage.getItem(cacheKey);
+      const cacheTime = sessionStorage.getItem(`${cacheKey}_time`);
+      const CACHE_DURATION = 15 * 60 * 1000; // 15 minutes for trailers
+
+      if (cached && cacheTime && (Date.now() - parseInt(cacheTime)) < CACHE_DURATION) {
+        try {
+          const cachedData = JSON.parse(cached);
+          setTrailers(cachedData.trailers);
+          setFeaturedTrailer(cachedData.featuredTrailer);
+          setLoading(false);
+          return;
+        } catch (e) {
+          // Invalid cache, continue with API call
+        }
+      }
+
       try {
-        const url = `${API_BASE}/api/movies?type=latestTrailers&limit=50`;
+        // Reduced limit from 50 to 20 for better performance
+        const url = `${API_BASE}/api/movies?type=latestTrailers&limit=20`;
         const res = await fetch(url, { signal: ac.signal });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
 
@@ -155,8 +174,7 @@ const Trailers = () => {
         const items = Array.isArray(json.items) ? json.items : [];
 
         const mapped = items.map(mapMovieToTrailerItem);
-        setTrailers(mapped);
-        setFeaturedTrailer(mapped[0] || {
+        const featured = mapped[0] || {
           id: "",
           title: "No Trailer Available",
           thumbnail: PLACEHOLDER_THUMB,
@@ -166,7 +184,16 @@ const Trailers = () => {
           genre: "",
           description: "",
           credits: {},
-        });
+        };
+
+        setTrailers(mapped);
+        setFeaturedTrailer(featured);
+
+        // Cache the results
+        const cacheData = { trailers: mapped, featuredTrailer: featured };
+        sessionStorage.setItem(cacheKey, JSON.stringify(cacheData));
+        sessionStorage.setItem(`${cacheKey}_time`, Date.now().toString());
+
         setLoading(false);
       } catch (err) {
         if (err.name === "AbortError") return;

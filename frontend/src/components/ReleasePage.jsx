@@ -55,8 +55,29 @@ const ReleasePage = () => {
     async function load() {
       setLoading(true);
       setError(null);
+
+      // Check cache first
+      const cacheKey = 'release_movies_cache';
+      const cached = sessionStorage.getItem(cacheKey);
+      const cacheTime = sessionStorage.getItem(`${cacheKey}_time`);
+      const CACHE_DURATION = 10 * 60 * 1000; // 10 minutes for release movies
+
+      if (cached && cacheTime && (Date.now() - parseInt(cacheTime)) < CACHE_DURATION) {
+        try {
+          const cachedData = JSON.parse(cached);
+          if (!cancelled) {
+            setMovies(cachedData);
+            setLoading(false);
+            return;
+          }
+        } catch (e) {
+          // Invalid cache, continue with API call
+        }
+      }
+
       try {
-        const url = `${API_BASE}/api/movies?type=releaseSoon&limit=100`;
+        // Reduced limit from 100 to 30 for better performance
+        const url = `${API_BASE}/api/movies?type=releaseSoon&limit=30`;
         const res = await fetch(url);
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const json = await res.json();
@@ -68,7 +89,12 @@ const ReleasePage = () => {
 
         const mapped = (items || []).map(mapBackendMovieToUi);
 
-        if (!cancelled) setMovies(mapped);
+        if (!cancelled) {
+          setMovies(mapped);
+          // Cache the results
+          sessionStorage.setItem(cacheKey, JSON.stringify(mapped));
+          sessionStorage.setItem(`${cacheKey}_time`, Date.now().toString());
+        }
       } catch (err) {
         console.error("Failed to Load", err);
         if (!cancelled) setError("Fail to load releases");
