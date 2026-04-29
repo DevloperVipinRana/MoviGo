@@ -1,11 +1,13 @@
 import React, { useEffect, useState } from "react";
 import { moviesStyles } from "../assets/dummyStyles";
-import movies from "../assets/dummymoviedata";
 import { Link } from "react-router-dom";
 import { Tickets } from "lucide-react";
+import { MoviesGridSkeleton } from "./SkeletonLoaders";
 
 const API_BASE = import.meta.env.VITE_API_BASE || "http://localhost:5000";
 const PLACEHOLDER = "https://via.placeholder.com/400x600?text=No+Poster";
+const CACHE_KEY = "featured_movies_cache";
+const CACHE_TTL = 10 * 60 * 1000;
 
 const getUploadUrl = (maybe) => {
   if (!maybe) return null;
@@ -14,148 +16,117 @@ const getUploadUrl = (maybe) => {
   return `${API_BASE}/uploads/${String(maybe).replace(/^uploads\//, "")}`;
 };
 
+const readCache = () => {
+  try {
+    const raw = sessionStorage.getItem(CACHE_KEY);
+    const ts  = sessionStorage.getItem(`${CACHE_KEY}_time`);
+    if (!raw || !ts) return { data: null, stale: false };
+    const data  = JSON.parse(raw);
+    const stale = Date.now() - parseInt(ts, 10) > CACHE_TTL;
+    return Array.isArray(data) && data.length > 0
+      ? { data, stale }
+      : { data: null, stale: false };
+  } catch { return { data: null, stale: false }; }
+};
+
+const writeCache = (data) => {
+  try {
+    sessionStorage.setItem(CACHE_KEY, JSON.stringify(data));
+    sessionStorage.setItem(`${CACHE_KEY}_time`, Date.now().toString());
+  } catch { /* quota */ }
+};
+
+const fetchFeatured = async (signal) => {
+  const res = await fetch(`${API_BASE}/api/movies?limit=20`, { signal });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const json  = await res.json();
+  const items = json.items ?? (Array.isArray(json) ? json : []);
+  const featured = items.filter(
+    (it) =>
+      it?.featured === true ||
+      it?.isFeatured === true ||
+      String(it?.type)?.toLowerCase() === "featured",
+  );
+  return (featured.length > 0 ? featured : items).slice(0, 6);
+};
+
 const Movies = () => {
-  const [movies, setMovies] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
+  const [movies, setMovies]   = useState([]);
+  const [loading, setLoading] = useState(() => readCache().data === null);
+  const [error, setError]     = useState(null);
 
   useEffect(() => {
     const ac = new AbortController();
-    setLoading(true);
-    setError(null);
+    const { data: cached, stale } = readCache();
 
-    async function loadFeaturedMovies() {
-      // Check cache first
-      const cacheKey = 'featured_movies_cache';
-      const cached = sessionStorage.getItem(cacheKey);
-      const cacheTime = sessionStorage.getItem(`${cacheKey}_time`);
-      const CACHE_DURATION = 10 * 60 * 1000; // 10 minutes for featured movies
+    if (cached) {
+      setMovies(cached);
+      setLoading(false);
+      if (!stale) return () => ac.abort();
+    }
 
-      if (cached && cacheTime && (Date.now() - parseInt(cacheTime)) < CACHE_DURATION) {
-        try {
-          const cachedData = JSON.parse(cached);
-          if (Array.isArray(cachedData) && cachedData.length > 0) {
-            setMovies(cachedData);
-            setLoading(false);
-            return;
-          }
-        } catch (e) {
-          // Invalid cache, continue with API call
-        }
-      }
-
-      async function fetchFeatured(url) {
-        const res = await fetch(url, { signal: ac.signal });
-        if (!res.ok) throw new Error(`fetch error: ${res.status}`);
-        const json = await res.json();
-        const items = json.items ?? (Array.isArray(json) ? json : []);
-        return items.filter(
-          (it) =>
-            it?.featured === true ||
-            it?.isFeatured === true ||
-            String(it?.type)?.toLowerCase() === "featured",
-        );
-      }
-
-      try {
-        // Use backend-supported query for featured movies
-        const url = `${API_BASE}/api/movies?type=featured&limit=20`;
-        let featuredOnly = await fetchFeatured(url);
-
-        if (featuredOnly.length === 0) {
-          const fallbackUrl = `${API_BASE}/api/movies?limit=50`;
-          featuredOnly = await fetchFeatured(fallbackUrl);
-        }
-
-        const limitedMovies = featuredOnly.slice(0, 6);
-        setMovies(limitedMovies);
-
-        // Cache the results only if we got movies
-        if (limitedMovies.length > 0) {
-          sessionStorage.setItem(cacheKey, JSON.stringify(limitedMovies));
-          sessionStorage.setItem(`${cacheKey}_time`, Date.now().toString());
-        }
-
-        setLoading(false);
-      } catch (err) {
+    fetchFeatured(ac.signal)
+      .then((items) => { setMovies(items); writeCache(items); setLoading(false); })
+      .catch((err) => {
         if (err.name === "AbortError") return;
         console.error("Movies load error", err);
-        setError("Failed to Load Movies");
-        setLoading(false);
-      }
-    }
-    loadFeaturedMovies();
+        if (!cached) { setError("Failed to load movies"); setLoading(false); }
+      });
+
     return () => ac.abort();
   }, []);
 
-  const visibleMovies = movies.slice(0, 6);
   return (
     <section className={moviesStyles.container}>
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Dancing+Script:wght@700&family=Pacifico&display=swap');
       `}</style>
 
-      <h2
-        style={{
-          fontFamily: "'Dancing Script', cursive",
-        }}
-        className={moviesStyles.title}
-      >
+      <h2 style={{ fontFamily: "'Dancing Script', cursive" }} className={moviesStyles.title}>
         Featured Movies
       </h2>
 
       {loading ? (
-        <div className="text-gray-300 py-12 text-center">Loading movies...</div>
+        <MoviesGridSkeleton count={6} gridClassName={moviesStyles.grid} />
       ) : error ? (
         <div className="text-red-400 py-12 text-center">{error}</div>
       ) : movies.length === 0 ? (
-        <div className="text-gray-400 py-12 text-center">
-          No featured movies found.
-        </div>
+        <div className="text-gray-400 py-12 text-center">No featured movies found.</div>
       ) : (
         <div className={moviesStyles.grid}>
           {movies.map((m) => {
-            const rawImg =
-              m.poster || m.latestTrailer?.thumbnail || m.thumbnail || null;
-            const imgSrc = getUploadUrl(rawImg) || PLACEHOLDER;
-            const title = m.movieName || m.title || "Untitled";
+            const rawImg   = m.poster || m.latestTrailer?.thumbnail || m.thumbnail || null;
+            const imgSrc   = getUploadUrl(rawImg) || PLACEHOLDER;
+            const title    = m.movieName || m.title || "Untitled";
             const category =
               (Array.isArray(m.categories) && m.categories[0]) ||
-              m.category ||
-              "General";
-            const movieId = m._id || m.id || title;
+              m.category || "General";
+            const movieId  = m._id || m.id || title;
 
             return (
               <article key={movieId} className={moviesStyles.movieArticle}>
                 <Link to={`/movie/${movieId}`} className={moviesStyles.movieLink}>
                   <img
                     src={imgSrc}
-                    alt={m.title}
+                    alt={title}
                     loading="lazy"
                     className={moviesStyles.movieImage}
-                    onError={(e) => {
-                      e.currentTarget.src = PLACEHOLDER
-                    }}
+                    onError={(e) => { e.currentTarget.src = PLACEHOLDER; }}
                   />
                 </Link>
-
                 <div className={moviesStyles.movieInfo}>
                   <div className={moviesStyles.titleContainer}>
                     <Tickets size={20} className="text-red-600 mr-2" />
                     <span
                       id={`movie-title-${movieId}`}
                       className={moviesStyles.movieTitle}
-                      style={{
-                        fontFamily: "'Pacifico', cursive",
-                      }}
+                      style={{ fontFamily: "'Pacifico', cursive" }}
                     >
                       {title}
                     </span>
                   </div>
                   <div className={moviesStyles.categoryContainer}>
-                    <span className={moviesStyles.categoryText}>
-                      {category}
-                    </span>
+                    <span className={moviesStyles.categoryText}>{category}</span>
                   </div>
                 </div>
               </article>

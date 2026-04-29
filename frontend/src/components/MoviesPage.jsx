@@ -1,10 +1,13 @@
 import React, { useEffect, useState } from "react";
 import { moviesPageStyles } from "../assets/dummyStyles";
 import { Link } from "react-router-dom";
+import { MoviesPageSkeleton } from "./SkeletonLoaders";
 
-const API_BASE = import.meta.env.VITE_API_BASE || "http://localhost:5000";
+const API_BASE       = import.meta.env.VITE_API_BASE || "http://localhost:5000";
 const COLLAPSE_COUNT = 12;
-const PLACEHOLDER = "https://via.placeholder.com/400x600?text=No+Poster";
+const PLACEHOLDER    = "https://via.placeholder.com/400x600?text=No+Poster";
+const CACHE_KEY      = "movies_page_cache";
+const CACHE_TTL      = 5 * 60 * 1000;
 
 const getUploadUrl = (maybe) => {
   if (!maybe) return null;
@@ -14,133 +17,111 @@ const getUploadUrl = (maybe) => {
 };
 
 const categoriesList = [
-  { id: "all", name: "All Movies" },
-  { id: "action", name: "Action" },
-  { id: "horror", name: "Horror" },
-  { id: "comedy", name: "Comedy" },
-  { id: "adventure", name: "Adventure" },
+  { id: "all",       name: "All Movies"  },
+  { id: "action",    name: "Action"      },
+  { id: "horror",    name: "Horror"      },
+  { id: "comedy",    name: "Comedy"      },
+  { id: "adventure", name: "Adventure"   },
 ];
 
 const mapBackendMovie = (m) => {
-  const id = m._id || m.id || "";
+  const id    = m._id || m.id || "";
   const title = m.movieName || m.title || "Untitled";
   const rawImg = m.poster || m.latestTrailer?.thumbnail || m.thumbnail || null;
-  const image = getUploadUrl(rawImg) || PLACEHOLDER;
-
-  // pick first category (normalize to lowercase for category id comparisons)
-  const cat =
+  const image  = getUploadUrl(rawImg) || PLACEHOLDER;
+  const cat    =
     (Array.isArray(m.categories) && m.categories[0]) ||
     m.category ||
     (Array.isArray(m.latestTrailer?.genres) && m.latestTrailer.genres[0]) ||
     "General";
-
-  const category = String(cat || "General");
-
-  return { id, title, image, category, raw: m };
+  return { id, title, image, category: String(cat || "General"), raw: m };
 };
 
+// ─── Cache ────────────────────────────────────────────────────────────────────
+const readCache = () => {
+  try {
+    const raw = sessionStorage.getItem(CACHE_KEY);
+    const ts  = sessionStorage.getItem(`${CACHE_KEY}_time`);
+    if (!raw || !ts) return { data: null, stale: false };
+    const data  = JSON.parse(raw);
+    const stale = Date.now() - parseInt(ts, 10) > CACHE_TTL;
+    return Array.isArray(data) && data.length > 0 ? { data, stale } : { data: null, stale: false };
+  } catch { return { data: null, stale: false }; }
+};
+
+const writeCache = (data) => {
+  try {
+    sessionStorage.setItem(CACHE_KEY, JSON.stringify(data));
+    sessionStorage.setItem(`${CACHE_KEY}_time`, Date.now().toString());
+  } catch { /* quota */ }
+};
+
+// ─── Component ────────────────────────────────────────────────────────────────
 const MoviesPage = () => {
   const [activeCategory, setActiveCategory] = useState("all");
-  const [showAll, setShowAll] = useState(false);
-  const [movies, setMovies] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
+  const [showAll, setShowAll]               = useState(false);
+  const [movies, setMovies]                 = useState([]);
+  const [loading, setLoading]               = useState(() => readCache().data === null);
+  const [error, setError]                   = useState(null);
 
   useEffect(() => {
     const ac = new AbortController();
-    let mounted = true;
+    const { data: cached, stale } = readCache();
 
-    async function load() {
-      setLoading(true);
-      setError(null);
+    if (cached) {
+      setMovies(cached);
+      setLoading(false);
+      if (!stale) return () => ac.abort();
+    }
 
-      // Check cache first
-      const cacheKey = 'movies_cache';
-      const cached = sessionStorage.getItem(cacheKey);
-      const cacheTime = sessionStorage.getItem(`${cacheKey}_time`);
-      const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
-
-      if (cached && cacheTime && (Date.now() - parseInt(cacheTime)) < CACHE_DURATION) {
-        try {
-          const cachedData = JSON.parse(cached);
-          if (mounted) {
-            setMovies(cachedData);
-            setLoading(false);
-            return;
-          }
-        } catch (e) {
-          // Invalid cache, continue with API call
-        }
-      }
-
+    const load = async () => {
       try {
-        // Reduced limit from 200 to 50 for better performance
-        const url = `${API_BASE}/api/movies?type=normal&limit=50`;
-        const res = await fetch(url, { signal: ac.signal });
+        const res = await fetch(`${API_BASE}/api/movies?type=normal&limit=50`, { signal: ac.signal });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
-
-        const json = await res.json();
+        const json  = await res.json();
         const items = Array.isArray(json.items) ? json.items : [];
-
         const mapped = items.map(mapBackendMovie);
-        if (mounted) {
-          setMovies(mapped);
-          // Cache the results
-          sessionStorage.setItem(cacheKey, JSON.stringify(mapped));
-          sessionStorage.setItem(`${cacheKey}_time`, Date.now().toString());
-          setLoading(false);
-        }
+        setMovies(mapped);
+        writeCache(mapped);
+        setLoading(false);
       } catch (err) {
         if (err.name === "AbortError") return;
         console.error("Failed to load movies:", err);
-        // fallback: try a generic fetch for any movies
+        // silent fallback — try without type filter
         try {
-          const res2 = await fetch(`${API_BASE}/api/movies?limit=50`);
+          const res2  = await fetch(`${API_BASE}/api/movies?limit=50`, { signal: ac.signal });
           if (!res2.ok) throw new Error(`Fallback HTTP ${res2.status}`);
-          const json2 = await res2.json();
-          const items2 = Array.isArray(json2.items) ? json2.items : [];
-          const mapped2 = items2.map(mapBackendMovie);
-          if (mounted) {
-            setMovies(mapped2);
-            setLoading(false);
-          }
+          const json2  = await res2.json();
+          const mapped2 = (Array.isArray(json2.items) ? json2.items : []).map(mapBackendMovie);
+          setMovies(mapped2);
+          writeCache(mapped2);
+          setLoading(false);
         } catch (err2) {
           if (err2.name === "AbortError") return;
-          console.error("Movies fallback failed:", err2);
-          if (mounted) {
-            setError("Unable to load movies.");
-            setLoading(false);
-          }
+          if (!cached) { setError("Unable to load movies."); setLoading(false); }
         }
       }
-    }
+    };
 
     load();
-    return () => {
-      mounted = false;
-      ac.abort();
-    };
+    return () => ac.abort();
   }, []);
 
   const filteredMovies = React.useMemo(() => {
     if (activeCategory === "all") return movies;
     return movies.filter(
-      (m) =>
-        String(m.category || "").toLowerCase() ===
-        String(activeCategory || "").toLowerCase(),
+      (m) => String(m.category || "").toLowerCase() === String(activeCategory || "").toLowerCase(),
     );
   }, [movies, activeCategory]);
 
-  useEffect(() => {
-    setShowAll(false);
-  }, [activeCategory]);
+  useEffect(() => { setShowAll(false); }, [activeCategory]);
 
-  const visibleMovies = showAll
-    ? filteredMovies
-    : filteredMovies.slice(0, COLLAPSE_COUNT);
+  const visibleMovies = showAll ? filteredMovies : filteredMovies.slice(0, COLLAPSE_COUNT);
 
   return (
     <div className={moviesPageStyles.container}>
+
+      {/* ── Category tabs — always visible (real or skeleton) ── */}
       <section className={moviesPageStyles.categoriesSection}>
         <div className={moviesPageStyles.categoriesContainer}>
           <div className={moviesPageStyles.categoriesFlex}>
@@ -163,12 +144,14 @@ const MoviesPage = () => {
 
       <section className={moviesPageStyles.moviesSection}>
         <div className={moviesPageStyles.moviesContainer}>
+
           {loading ? (
-            <div className="py-12 text-center text-gray-300">
-              Loading movies...
-            </div>
+            // Skeleton grid — matches real layout exactly (no layout shift)
+            <MoviesPageSkeleton count={COLLAPSE_COUNT} />
+
           ) : error ? (
             <div className="py-12 text-center text-red-400">{error}</div>
+
           ) : (
             <>
               <div className={moviesPageStyles.moviesGrid}>
@@ -184,17 +167,14 @@ const MoviesPage = () => {
                         src={movie.image}
                         alt={movie.title}
                         className={moviesPageStyles.movieImage}
+                        loading="lazy"
+                        onError={(e) => { e.currentTarget.src = PLACEHOLDER; }}
                       />
                     </div>
-
                     <div className={moviesPageStyles.movieInfo}>
-                      <h3 className={moviesPageStyles.movieTitle}>
-                        {movie.title}
-                      </h3>
+                      <h3 className={moviesPageStyles.movieTitle}>{movie.title}</h3>
                       <div className={moviesPageStyles.movieCategory}>
-                        <span className={moviesPageStyles.movieCategoryText}>
-                          {movie.category}
-                        </span>
+                        <span className={moviesPageStyles.movieCategoryText}>{movie.category}</span>
                       </div>
                     </div>
                   </Link>
@@ -206,22 +186,23 @@ const MoviesPage = () => {
                   </div>
                 )}
               </div>
+
+              {filteredMovies.length > COLLAPSE_COUNT && (
+                <div className={moviesPageStyles.showMoreContainer}>
+                  <button
+                    onClick={() => setShowAll((prev) => !prev)}
+                    className={moviesPageStyles.showMoreButton}
+                    type="button"
+                  >
+                    {showAll
+                      ? "Show Less"
+                      : `Show More (${filteredMovies.length - COLLAPSE_COUNT} more)`}
+                  </button>
+                </div>
+              )}
             </>
           )}
 
-          {filteredMovies.length > COLLAPSE_COUNT && (
-            <div className={moviesPageStyles.showMoreContainer}>
-              <button
-                onClick={() => setShowAll((prev) => !prev)}
-                className={moviesPageStyles.showMoreButton}
-                type="button"
-              >
-                {showAll
-                  ? "Show Less"
-                  : `Show More (${filteredMovies.length - COLLAPSE_COUNT} more)`}
-              </button>
-            </div>
-          )}
         </div>
       </section>
     </div>
@@ -229,3 +210,4 @@ const MoviesPage = () => {
 };
 
 export default MoviesPage;
+
