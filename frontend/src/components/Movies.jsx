@@ -37,17 +37,37 @@ const writeCache = (data) => {
 };
 
 const fetchFeatured = async (signal) => {
-  const res = await fetch(`${API_BASE}/api/movies?limit=20`, { signal });
+  // Primary: ask backend for type=featured specifically
+  const res = await fetch(`${API_BASE}/api/movies?type=featured&limit=20`, { signal });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   const json  = await res.json();
   const items = json.items ?? (Array.isArray(json) ? json : []);
+
+  // Filter client-side too (covers featured/isFeatured boolean flags)
   const featured = items.filter(
     (it) =>
       it?.featured === true ||
       it?.isFeatured === true ||
       String(it?.type)?.toLowerCase() === "featured",
   );
-  return (featured.length > 0 ? featured : items).slice(0, 6);
+
+  // Fallback: if backend returned nothing for type=featured,
+  // do a second fetch without the type filter and filter client-side
+  if (featured.length === 0) {
+    const res2   = await fetch(`${API_BASE}/api/movies?limit=50`, { signal });
+    if (!res2.ok) throw new Error(`HTTP ${res2.status}`);
+    const json2  = await res2.json();
+    const items2 = json2.items ?? (Array.isArray(json2) ? json2 : []);
+    const featured2 = items2.filter(
+      (it) =>
+        it?.featured === true ||
+        it?.isFeatured === true ||
+        String(it?.type)?.toLowerCase() === "featured",
+    );
+    return featured2.slice(0, 6);
+  }
+
+  return featured.slice(0, 6);
 };
 
 const Movies = () => {
